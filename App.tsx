@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { generateQuiz } from './services/geminiService';
-import { saveQuizToHistory, getSavedQuizzes, deleteSavedQuiz } from './services/storageService';
+import { saveQuizToHistory, getSavedQuizzes, deleteSavedQuiz, checkSupabaseConnection } from './services/storageService';
 import { QuizSettings, QuizData, SavedQuiz } from './types';
 import { QuizForm } from './components/QuizForm';
 import { QuizInterface } from './components/QuizInterface';
 import { QuizHistory } from './components/QuizHistory';
-import { ClockIcon } from '@heroicons/react/24/outline';
+import { ClockIcon, CloudIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(false);
@@ -14,10 +14,16 @@ const App: React.FC = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [savedQuizzes, setSavedQuizzes] = useState<SavedQuiz[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<'connected' | 'offline'>('offline');
 
   // Load history on mount from DB
   useEffect(() => {
-    const fetchHistory = async () => {
+    const initApp = async () => {
+        // Check DB connection
+        const isConnected = await checkSupabaseConnection();
+        setCloudStatus(isConnected ? 'connected' : 'offline');
+
+        // Load History
         setIsHistoryLoading(true);
         try {
             const history = await getSavedQuizzes();
@@ -28,7 +34,7 @@ const App: React.FC = () => {
             setIsHistoryLoading(false);
         }
     };
-    fetchHistory();
+    initApp();
   }, []);
 
   const handleCreateQuiz = async (settings: QuizSettings) => {
@@ -178,8 +184,26 @@ const App: React.FC = () => {
       </main>
 
       {/* Footer */}
-      <footer className="py-8 text-center text-slate-400 text-sm">
+      <footer className="py-8 text-center text-slate-400 text-sm flex flex-col items-center gap-2">
         <p>&copy; {new Date().getFullYear()} Lumière French Engine. Powered by Google Gemini.</p>
+        
+        {/* Connection Status Indicator */}
+        <div className="flex items-center gap-2 text-xs font-medium">
+             {cloudStatus === 'connected' ? (
+                 <span className="flex items-center gap-1.5 text-green-600 bg-green-50 px-2 py-1 rounded-full border border-green-100">
+                     <span className="relative flex h-2 w-2">
+                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                       <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                     </span>
+                     Database Connected
+                 </span>
+             ) : (
+                 <span className="flex items-center gap-1.5 text-slate-500 bg-slate-100 px-2 py-1 rounded-full border border-slate-200">
+                     <span className="inline-flex rounded-full h-2 w-2 bg-slate-400"></span>
+                     Local Mode (Database Offline)
+                 </span>
+             )}
+        </div>
       </footer>
       
       {/* Global CSS for animations */}
