@@ -1,0 +1,5 @@
+{
+  "name": "Lumière French Quiz",
+  "description": "An AI-powered adaptive French quiz engine generating structured exercises based on CEFR levels and specific topics.",
+  "requestFramePermissions": []
+}
