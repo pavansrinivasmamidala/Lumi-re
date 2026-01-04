@@ -1,9 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { generateVocabularyList, generateWordDetails } from '../services/geminiService';
-import { getVocabularyByLevel, saveVocabularyList, getWordDetailsFromDB, updateWordDetailsInDB } from '../services/storageService';
+import { getVocabularyByLevel, saveVocabularyList, getWordDetailsFromDB, updateWordDetailsInDB, searchVocabulary } from '../services/storageService';
 import { VocabularyEntry, WordDetail, CefrLevel } from '../types';
-import { ArrowLeftIcon, BookOpenIcon, SparklesIcon, CircleStackIcon, SpeakerWaveIcon } from '@heroicons/react/24/solid';
+import { ArrowLeftIcon, BookOpenIcon, SparklesIcon, CircleStackIcon, SpeakerWaveIcon, MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/solid';
 import { InteractiveText } from './InteractiveText';
 
 const LEVELS: { id: CefrLevel; label: string; desc: string }[] = [
@@ -21,10 +21,49 @@ export const VocabularyExplorer: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('');
 
+  // Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<VocabularyEntry[]>([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const playAudio = (text: string) => {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'fr-FR';
     window.speechSynthesis.speak(u);
+  };
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const q = e.target.value;
+    setSearchQuery(q);
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (q.trim().length < 2) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    // Debounce search
+    searchTimeoutRef.current = setTimeout(async () => {
+      const results = await searchVocabulary(q);
+      setSearchResults(results);
+      setShowSearchResults(true);
+    }, 300);
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearchResults(false);
+  };
+
+  const handleSearchResultClick = (entry: VocabularyEntry) => {
+    clearSearch(); // Close search
+    handleWordSelect(entry);
   };
 
   const handleLevelSelect = async (lvl: CefrLevel) => {
@@ -89,8 +128,10 @@ export const VocabularyExplorer: React.FC = () => {
       
       await updateWordDetailsInDB(wordEntry.word, newDetails);
       
-      // Update local state list to prevent re-fetch
-      setWordList(prev => prev.map(w => w.word === wordEntry.word ? { ...w, details: newDetails } : w));
+      // Update local state list if we are in list view and editing that list
+      if (view === 'list' && selectedLevel === wordEntry.level) {
+          setWordList(prev => prev.map(w => w.word === wordEntry.word ? { ...w, details: newDetails } : w));
+      }
       
       setSelectedWord(newDetails);
       setView('detail');
@@ -103,7 +144,15 @@ export const VocabularyExplorer: React.FC = () => {
   };
 
   const goBack = () => {
-    if (view === 'detail') setView('list');
+    if (view === 'detail') {
+        // If we were viewing a searched word from a different level, go back to levels or just keep list state?
+        // Simplest: go back to list if level matches, otherwise levels
+        if (selectedLevel) {
+            setView('list'); 
+        } else {
+            setView('levels');
+        }
+    }
     else if (view === 'list') setView('levels');
   };
 
@@ -124,17 +173,72 @@ export const VocabularyExplorer: React.FC = () => {
     );
   }
 
+  // Common Header with Search
+  const renderHeader = () => (
+      <div className="text-center mb-8 relative animate-fade-in z-20">
+        {view === 'levels' && (
+           <>
+            <h1 className="text-4xl md:text-5xl font-serif font-bold text-slate-800 dark:text-slate-100 mb-6">Vocabulary Explorer</h1>
+            <p className="text-lg text-slate-500 dark:text-slate-400 mb-6">
+                Explore words by proficiency level. Data is seeded once and cached.
+            </p>
+           </>
+        )}
+        
+        {/* Search Bar */}
+        <div className="relative max-w-md mx-auto">
+           <div className="relative">
+                <input 
+                    type="text"
+                    value={searchQuery}
+                    onChange={handleSearchChange}
+                    placeholder="Search dictionary..."
+                    className="w-full pl-10 pr-10 py-3 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-french-blue dark:focus:ring-blue-500 outline-none shadow-sm transition-all relative z-30"
+                />
+                <MagnifyingGlassIcon className="w-5 h-5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 z-30" />
+                {searchQuery && (
+                    <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 z-30">
+                        <XMarkIcon className="w-5 h-5" />
+                    </button>
+                )}
+           </div>
+
+           {/* Dropdown Results */}
+           {showSearchResults && (
+               <div className="absolute top-1/2 left-0 right-0 pt-6 bg-white dark:bg-slate-800 rounded-b-xl rounded-t-lg shadow-xl border border-slate-100 dark:border-slate-700 max-h-64 overflow-y-auto overflow-hidden z-20">
+                  {searchResults.length > 0 ? (
+                      searchResults.map((result, idx) => (
+                          <button 
+                            key={idx}
+                            onClick={() => handleSearchResultClick(result)}
+                            className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-800 last:border-0 flex justify-between items-center group transition-colors"
+                          >
+                             <div>
+                                <span className="font-bold text-slate-800 dark:text-slate-100 capitalize">{result.word}</span>
+                                <span className="ml-2 text-xs text-slate-500 dark:text-slate-400 italic">- {result.translation}</span>
+                             </div>
+                             <span className="text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 uppercase">
+                                {result.level}
+                             </span>
+                          </button>
+                      ))
+                  ) : (
+                      <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 text-center">
+                          No words found.
+                      </div>
+                  )}
+               </div>
+           )}
+        </div>
+      </div>
+  );
+
   // --- VIEW 1: LEVELS ---
   if (view === 'levels') {
     return (
       <div className="w-full max-w-4xl mx-auto">
-        <div className="text-center mb-10 animate-fade-in">
-            <h1 className="text-4xl md:text-5xl font-serif font-bold text-slate-800 dark:text-slate-100 mb-6">Vocabulary Explorer</h1>
-            <p className="text-lg text-slate-500 dark:text-slate-400">
-                Explore words by proficiency level. Data is seeded once and cached.
-            </p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in-up">
+        {renderHeader()}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in-up z-0 relative">
             {LEVELS.map((lvl) => (
                 <button
                     key={lvl.id}
@@ -154,47 +258,50 @@ export const VocabularyExplorer: React.FC = () => {
   // --- VIEW 2: WORD LIST ---
   if (view === 'list') {
     return (
-      <div className="w-full max-w-4xl mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-xl min-h-[600px] flex flex-col animate-fade-in transition-colors">
-         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-french-blue dark:bg-slate-800 rounded-t-2xl text-white">
-            <div className="flex items-center gap-4">
-                <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                    <ArrowLeftIcon className="w-5 h-5" />
-                </button>
-                <div>
-                    <span className="text-xs font-bold uppercase tracking-wider opacity-80">Level {selectedLevel}</span>
-                    <h2 className="text-2xl font-serif font-bold">Word Bank</h2>
+      <div className="w-full max-w-4xl mx-auto flex flex-col gap-6">
+        {renderHeader()}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl min-h-[600px] flex flex-col animate-fade-in transition-colors z-0 relative">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-french-blue dark:bg-slate-800 rounded-t-2xl text-white">
+                <div className="flex items-center gap-4">
+                    <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                        <ArrowLeftIcon className="w-5 h-5" />
+                    </button>
+                    <div>
+                        <span className="text-xs font-bold uppercase tracking-wider opacity-80">Level {selectedLevel}</span>
+                        <h2 className="text-2xl font-serif font-bold">Word Bank</h2>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs bg-black/20 px-3 py-1 rounded-full">
+                    <CircleStackIcon className="w-4 h-4" />
+                    <span>{wordList.length} words loaded</span>
                 </div>
             </div>
-            <div className="flex items-center gap-2 text-xs bg-black/20 px-3 py-1 rounded-full">
-                <CircleStackIcon className="w-4 h-4" />
-                <span>{wordList.length} words loaded</span>
-            </div>
-         </div>
-         
-         <div className="p-8 grid grid-cols-2 md:grid-cols-4 gap-4 overflow-y-auto">
-            {wordList.map((item, idx) => (
-                <button 
-                  key={idx}
-                  onClick={() => handleWordSelect(item)}
-                  className="relative p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:border-french-blue dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-left transition-all group"
-                >
-                     <button 
-                        onClick={(e) => { e.stopPropagation(); playAudio(item.word); }}
-                        className="absolute top-2 right-2 p-1.5 text-slate-300 dark:text-slate-600 hover:text-french-blue dark:hover:text-blue-400 hover:bg-white dark:hover:bg-slate-700 rounded-full transition-colors z-10"
-                        title="Pronounce"
+            
+            <div className="p-8 grid grid-cols-2 md:grid-cols-4 gap-4 overflow-y-auto">
+                {wordList.map((item, idx) => (
+                    <button 
+                    key={idx}
+                    onClick={() => handleWordSelect(item)}
+                    className="relative p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:border-french-blue dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-left transition-all group"
                     >
-                        <SpeakerWaveIcon className="w-4 h-4" />
-                    </button>
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); playAudio(item.word); }}
+                            className="absolute top-2 right-2 p-1.5 text-slate-300 dark:text-slate-600 hover:text-french-blue dark:hover:text-blue-400 hover:bg-white dark:hover:bg-slate-700 rounded-full transition-colors z-10"
+                            title="Pronounce"
+                        >
+                            <SpeakerWaveIcon className="w-4 h-4" />
+                        </button>
 
-                    <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex justify-between">
-                        {item.type}
-                        {item.details && <SparklesIcon className="w-3 h-3 text-yellow-500 mr-6" title="Detailed view cached" />}
-                    </div>
-                    <div className="font-bold text-slate-800 dark:text-slate-100 text-lg mb-1 capitalize truncate pr-4" title={item.word}>{item.word}</div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400 italic truncate" title={item.translation}>{item.translation}</div>
-                </button>
-            ))}
-         </div>
+                        <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex justify-between">
+                            {item.type}
+                            {item.details && <SparklesIcon className="w-3 h-3 text-yellow-500 mr-6" title="Detailed view cached" />}
+                        </div>
+                        <div className="font-bold text-slate-800 dark:text-slate-100 text-lg mb-1 capitalize truncate pr-4" title={item.word}>{item.word}</div>
+                        <div className="text-sm text-slate-500 dark:text-slate-400 italic truncate" title={item.translation}>{item.translation}</div>
+                    </button>
+                ))}
+            </div>
+        </div>
       </div>
     );
   }

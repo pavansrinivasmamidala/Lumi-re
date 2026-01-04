@@ -321,3 +321,37 @@ export const updateWordDetailsInDB = async (word: string, details: WordDetail): 
     }
   }
 };
+
+export const searchVocabulary = async (query: string): Promise<VocabularyEntry[]> => {
+  if (!query || query.length < 2) return [];
+
+  if (isSupabaseConfigured()) {
+    try {
+      // Use ilike for case-insensitive partial match
+      const { data, error } = await supabase
+        .from('vocabulary')
+        .select('*')
+        .ilike('word', `${query}%`) // Starts with query
+        .limit(8);
+      
+      if (!error && data) {
+        return data as VocabularyEntry[];
+      }
+    } catch (e) {
+      console.warn("Search failed in Supabase", e);
+    }
+  }
+
+  // Local Fallback
+  const allWords: VocabularyEntry[] = [];
+  const levels: CefrLevel[] = ['A1', 'A2', 'B1', 'B2'];
+  
+  for (const lvl of levels) {
+    const words = getLocalItems<VocabularyEntry>(`${LOCAL_VOCAB_PREFIX}${lvl}`);
+    allWords.push(...words);
+  }
+
+  return allWords
+    .filter(w => w.word.toLowerCase().startsWith(query.toLowerCase()))
+    .slice(0, 8);
+};
