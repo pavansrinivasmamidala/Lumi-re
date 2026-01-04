@@ -1,6 +1,6 @@
 
-import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { QuizSettings, QuizResponse, StoryResponse, VocabularyListResponse, WordDetailResponse } from "../types";
+import { GoogleGenAI, Type, Schema, Modality } from "@google/genai";
+import { QuizSettings, QuizResponse, StoryResponse, VocabularyListResponse, WordDetailResponse, GlossaryEntry } from "../types";
 
 const SYSTEM_INSTRUCTION = `
 You are the "French Quiz Engine," a specialized API endpoint that generates structured JSON quizzes.
@@ -20,15 +20,15 @@ You are the "French Quiz Engine," a specialized API endpoint that generates stru
 `;
 
 const STORY_SYSTEM_INSTRUCTION = `
-You are a French Storyteller Engine. Write a short, engaging story.
+You are a French Master Storyteller. 
+Write engaging, creative, and culturally rich stories suitable for language learners.
 
 **Output Constraints:**
-- **content**: A short story (approx 200 words).
+- **content**: A cohesive story (approx 250 words). Focus on narrative flow and vocabulary richness appropriate for the level.
 - **glossary**: 
-  - **STRICT LIMIT:** Generate EXACTLY 10 glossary entries.
-  - Select only the most challenging words.
-  - Do NOT try to define every word.
-  - The 'word' field must match the text exactly (for matching).
+  - Generate a "starter" glossary of the 5-10 most interesting words.
+  - The frontend handles dynamic translation, so you do NOT need to define every word. Focus on the hardest ones.
+  - The 'word' field must match the text exactly.
 `;
 
 const VOCAB_LIST_INSTRUCTION = `
@@ -41,6 +41,7 @@ Analyze the French word provided.
 - If Verb: provide conjugations (Present, Passe Compose, Imparfait, Future).
 - If Noun/Adj: provide gender/plural forms.
 - Provide 2 short examples.
+- **Phonetics**: Provide IPA pronunciation.
 `;
 
 const RESPONSE_SCHEMA: Schema = {
@@ -173,6 +174,7 @@ const WORD_DETAIL_SCHEMA: Schema = {
         type: { type: Type.STRING, enum: ['verb', 'noun', 'adjective', 'other'] },
         translation: { type: Type.STRING },
         definition: { type: Type.STRING },
+        phonetics: { type: Type.STRING },
         
         // Verb Specifics
         verb_group: { type: Type.STRING },
@@ -250,7 +252,7 @@ export const generateQuiz = async (settings: QuizSettings): Promise<QuizResponse
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash", // Using standard flash for balance of cost and performance
+      model: "gemini-2.5-flash", 
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -286,13 +288,13 @@ export const generateStory = async (settings: QuizSettings): Promise<StoryRespon
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash", // Good balance of quality and speed
       contents: promptText,
       config: {
         systemInstruction: STORY_SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
         responseSchema: STORY_SCHEMA,
-        temperature: 0.7,
+        temperature: 0.8, // Slightly higher creative temperature
       },
     });
 
@@ -348,6 +350,72 @@ export const generateWordDetails = async (word: string): Promise<WordDetailRespo
     return JSON.parse(response.text!) as WordDetailResponse;
   } catch (error) {
     console.error("Gemini API Error:", error);
+    throw error;
+  }
+};
+
+// --- AUDIO GENERATION ---
+
+// Helper to decode Base64 to ArrayBuffer (Uint8Array)
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// Helper to convert Raw PCM (Int16) to AudioBuffer
+// Gemini TTS outputs 16-bit PCM at 24kHz
+export const pcmToAudioBuffer = (base64: string, ctx: AudioContext, sampleRate: number = 24000): AudioBuffer => {
+  const bytes = base64ToUint8Array(base64);
+  const dataInt16 = new Int16Array(bytes.buffer);
+  const numChannels = 1;
+  const frameCount = dataInt16.length / numChannels;
+  
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+  const channelData = buffer.getChannelData(0); // Mono
+  
+  for (let i = 0; i < frameCount; i++) {
+    // Convert Int16 (-32768 to 32767) to Float32 (-1.0 to 1.0)
+    channelData[i] = dataInt16[i] / 32768.0;
+  }
+  
+  return buffer;
+}
+
+export const generateSpeech = async (text: string): Promise<string> => {
+  if (!process.env.API_KEY) throw new Error("API Key is missing.");
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: {
+        parts: [{ text: text }],
+      },
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' },
+          },
+        },
+      },
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    
+    if (!base64Audio) {
+      throw new Error("No audio data returned");
+    }
+
+    return base64Audio;
+
+  } catch (error) {
+    console.error("Gemini TTS Error:", error);
     throw error;
   }
 };

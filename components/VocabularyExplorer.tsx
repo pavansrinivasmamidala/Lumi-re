@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 import { generateVocabularyList, generateWordDetails } from '../services/geminiService';
 import { getVocabularyByLevel, saveVocabularyList, getWordDetailsFromDB, updateWordDetailsInDB } from '../services/storageService';
 import { VocabularyEntry, WordDetail, CefrLevel } from '../types';
-import { ArrowLeftIcon, BookOpenIcon, SparklesIcon, CircleStackIcon } from '@heroicons/react/24/solid';
+import { ArrowLeftIcon, BookOpenIcon, SparklesIcon, CircleStackIcon, SpeakerWaveIcon } from '@heroicons/react/24/solid';
+import { InteractiveText } from './InteractiveText';
 
 const LEVELS: { id: CefrLevel; label: string; desc: string }[] = [
   { id: 'A1', label: 'A1 Beginner', desc: 'Basic survival vocabulary' },
@@ -19,6 +20,12 @@ export const VocabularyExplorer: React.FC = () => {
   const [selectedWord, setSelectedWord] = useState<WordDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('');
+
+  const playAudio = (text: string) => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'fr-FR';
+    window.speechSynthesis.speak(u);
+  };
 
   const handleLevelSelect = async (lvl: CefrLevel) => {
     setSelectedLevel(lvl);
@@ -169,13 +176,21 @@ export const VocabularyExplorer: React.FC = () => {
                 <button 
                   key={idx}
                   onClick={() => handleWordSelect(item)}
-                  className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:border-french-blue dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-left transition-all group"
+                  className="relative p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:border-french-blue dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-left transition-all group"
                 >
+                     <button 
+                        onClick={(e) => { e.stopPropagation(); playAudio(item.word); }}
+                        className="absolute top-2 right-2 p-1.5 text-slate-300 dark:text-slate-600 hover:text-french-blue dark:hover:text-blue-400 hover:bg-white dark:hover:bg-slate-700 rounded-full transition-colors z-10"
+                        title="Pronounce"
+                    >
+                        <SpeakerWaveIcon className="w-4 h-4" />
+                    </button>
+
                     <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex justify-between">
                         {item.type}
-                        {item.details && <SparklesIcon className="w-3 h-3 text-yellow-500" title="Detailed view cached" />}
+                        {item.details && <SparklesIcon className="w-3 h-3 text-yellow-500 mr-6" title="Detailed view cached" />}
                     </div>
-                    <div className="font-bold text-slate-800 dark:text-slate-100 text-lg mb-1 capitalize truncate" title={item.word}>{item.word}</div>
+                    <div className="font-bold text-slate-800 dark:text-slate-100 text-lg mb-1 capitalize truncate pr-4" title={item.word}>{item.word}</div>
                     <div className="text-sm text-slate-500 dark:text-slate-400 italic truncate" title={item.translation}>{item.translation}</div>
                 </button>
             ))}
@@ -195,12 +210,21 @@ export const VocabularyExplorer: React.FC = () => {
             <button onClick={goBack} className="absolute top-8 left-8 p-2 text-slate-400 hover:text-white transition-colors">
                 <ArrowLeftIcon className="w-6 h-6" />
             </button>
-            <div className="text-center mt-4">
+            <div className="text-center mt-4 flex flex-col items-center">
                 <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold tracking-wider mb-3 uppercase 
                     ${isVerb ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'}`}>
                     {d.type}
                 </span>
-                <h1 className="text-5xl font-serif font-bold mb-2 capitalize">{d.word}</h1>
+                <div className="flex items-center gap-4 mb-2">
+                    <h1 className="text-5xl font-serif font-bold capitalize">{d.word}</h1>
+                    <button 
+                        onClick={() => playAudio(d.word)}
+                        className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                        title="Pronounce"
+                    >
+                        <SpeakerWaveIcon className="w-8 h-8" />
+                    </button>
+                </div>
                 <p className="text-xl opacity-90 font-light">{d.translation}</p>
             </div>
             {isVerb && (
@@ -231,7 +255,9 @@ export const VocabularyExplorer: React.FC = () => {
                     </h3>
                     {d.examples.map((ex, i) => (
                         <div key={i} className="pl-4 border-l-2 border-french-blue dark:border-blue-500">
-                            <p className="text-slate-800 dark:text-slate-200 font-medium italic">"{ex.french}"</p>
+                            <div className="text-slate-800 dark:text-slate-200 font-medium italic mb-1 text-lg leading-relaxed">
+                                "<InteractiveText text={ex.french} glossary={[]} level={selectedLevel || 'A1'} />"
+                            </div>
                             <p className="text-slate-500 dark:text-slate-400 text-sm">{ex.english}</p>
                         </div>
                     ))}

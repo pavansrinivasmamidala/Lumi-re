@@ -10,10 +10,11 @@ interface BaseQuestionProps {
   currentAnswer: any;
   onAnswer: (answer: any) => void;
   isSubmitted: boolean;
+  level?: string; // Add level prop
 }
 
 // --- MCQ Component ---
-export const McqQuestion: React.FC<BaseQuestionProps> = ({ question, glossary, currentAnswer, onAnswer, isSubmitted }) => {
+export const McqQuestion: React.FC<BaseQuestionProps> = ({ question, glossary, currentAnswer, onAnswer, isSubmitted, level }) => {
   const options = question.content.options || [];
 
   return (
@@ -45,7 +46,7 @@ export const McqQuestion: React.FC<BaseQuestionProps> = ({ question, glossary, c
                 {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-french-blue dark:bg-blue-500" />}
             </div>
             <span className="font-medium text-lg flex-grow">
-                <InteractiveText text={option} glossary={glossary} />
+                <InteractiveText text={option} glossary={glossary} level={level} />
             </span>
           </button>
         );
@@ -55,7 +56,7 @@ export const McqQuestion: React.FC<BaseQuestionProps> = ({ question, glossary, c
 };
 
 // --- Fill In Blank Component ---
-export const FillBlankQuestion: React.FC<BaseQuestionProps> = ({ question, glossary, currentAnswer, onAnswer, isSubmitted }) => {
+export const FillBlankQuestion: React.FC<BaseQuestionProps> = ({ question, glossary, currentAnswer, onAnswer, isSubmitted, level }) => {
   const rawParts = (question.content.sentence_with_blank || "").split("_____");
   const parts = rawParts.length >= 2 ? rawParts : ["", ""];
   
@@ -69,7 +70,7 @@ export const FillBlankQuestion: React.FC<BaseQuestionProps> = ({ question, gloss
   return (
     <div className="py-8 px-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center transition-colors">
       <div className="text-xl md:text-2xl leading-[2.5] text-slate-800 dark:text-slate-100 font-serif text-center w-full max-w-2xl">
-        <InteractiveText text={parts[0]} glossary={glossary} className="mr-1" />
+        <InteractiveText text={parts[0]} glossary={glossary} level={level} className="mr-1" />
         
         <span className="inline-block relative align-baseline mx-1 group">
             <input
@@ -93,7 +94,7 @@ export const FillBlankQuestion: React.FC<BaseQuestionProps> = ({ question, gloss
             )}
         </span>
 
-        <InteractiveText text={parts[1] || ""} glossary={glossary} className="ml-1" />
+        <InteractiveText text={parts[1] || ""} glossary={glossary} level={level} className="ml-1" />
       </div>
 
       {/* Answer Feedback */}
@@ -110,7 +111,7 @@ export const FillBlankQuestion: React.FC<BaseQuestionProps> = ({ question, gloss
 };
 
 // --- Matching Component ---
-export const MatchingQuestion: React.FC<BaseQuestionProps> = ({ question, glossary, currentAnswer, onAnswer, isSubmitted }) => {
+export const MatchingQuestion: React.FC<BaseQuestionProps> = ({ question, glossary, currentAnswer, onAnswer, isSubmitted, level }) => {
   const answerMap = (currentAnswer as Record<string, string>) || {};
   
   const [shuffledRight, setShuffledRight] = useState<string[]>([]);
@@ -189,7 +190,7 @@ export const MatchingQuestion: React.FC<BaseQuestionProps> = ({ question, glossa
               disabled={isSubmitted}
               className={`w-full p-3 text-left border rounded-md text-sm font-medium transition-all ${borderColor} ${bgColor} ${textColor} relative`}
             >
-              <InteractiveText text={pair.left} glossary={glossary} />
+              <InteractiveText text={pair.left} glossary={glossary} level={level} />
               {matchedRight && (
                   <span className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-500"></span>
               )}
@@ -236,7 +237,7 @@ export const MatchingQuestion: React.FC<BaseQuestionProps> = ({ question, glossa
               disabled={isSubmitted || (isUsed && !isSubmitted)}
               className={`w-full p-3 text-left border rounded-md text-sm transition-all ${borderColor} ${bgColor} ${textColor}`}
             >
-              <InteractiveText text={rightItem} glossary={glossary} />
+              <InteractiveText text={rightItem} glossary={glossary} level={level} />
             </button>
           );
         })}

@@ -119,6 +119,7 @@ export interface WordDetail {
   type: 'verb' | 'noun' | 'adjective' | 'other';
   translation: string;
   definition: string;
+  phonetics?: string; // Added field
   
   // Verb Specifics
   verb_group?: string; // 1st, 2nd, 3rd, Irregular

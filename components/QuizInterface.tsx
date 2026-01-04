@@ -183,7 +183,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onRestart })
                 )}
             </div>
             <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mt-2 font-serif leading-tight">
-                <InteractiveText text={currentQuestion.question_text} glossary={glossary} />
+                <InteractiveText text={currentQuestion.question_text} glossary={glossary} level={quiz.cefr_level} />
             </h2>
         </div>
 
@@ -195,7 +195,8 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onRestart })
                     glossary={glossary}
                     currentAnswer={answers[currentQuestion.id]} 
                     onAnswer={handleAnswer} 
-                    isSubmitted={isChecked} 
+                    isSubmitted={isChecked}
+                    level={quiz.cefr_level}
                 />
             )}
             {currentQuestion.type === 'fill_blank' && (
@@ -204,7 +205,8 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onRestart })
                     glossary={glossary}
                     currentAnswer={answers[currentQuestion.id]} 
                     onAnswer={handleAnswer} 
-                    isSubmitted={isChecked} 
+                    isSubmitted={isChecked}
+                    level={quiz.cefr_level} 
                 />
             )}
             {currentQuestion.type === 'matching' && (
@@ -213,7 +215,8 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onRestart })
                     glossary={glossary}
                     currentAnswer={answers[currentQuestion.id]} 
                     onAnswer={handleAnswer} 
-                    isSubmitted={isChecked} 
+                    isSubmitted={isChecked}
+                    level={quiz.cefr_level} 
                 />
             )}
         </div>

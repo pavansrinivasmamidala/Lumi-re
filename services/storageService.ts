@@ -243,13 +243,38 @@ export const saveVocabularyList = async (level: CefrLevel, words: VocabularyEntr
   saveLocalItems(`${LOCAL_VOCAB_PREFIX}${level}`, cleanWords);
 };
 
+export const saveVocabularyEntry = async (entry: VocabularyEntry): Promise<void> => {
+  if (isSupabaseConfigured()) {
+    try {
+      // Check if exists first to avoid duplicate errors if constraints are loose, or use upsert
+      const { error } = await supabase.from('vocabulary').upsert(entry, { onConflict: 'word' });
+      if (error) throw error;
+      return;
+    } catch (e: any) {
+      console.warn(`Supabase vocab entry save failed: ${e.message}`);
+    }
+  }
+
+  // Local Fallback
+  const key = `${LOCAL_VOCAB_PREFIX}${entry.level}`;
+  const list = getLocalItems<VocabularyEntry>(key);
+  // Check if exists
+  const idx = list.findIndex(w => w.word.toLowerCase() === entry.word.toLowerCase());
+  if (idx !== -1) {
+    list[idx] = entry; // Update
+  } else {
+    list.push(entry); // Add
+  }
+  saveLocalItems(key, list);
+};
+
 export const getWordDetailsFromDB = async (word: string): Promise<WordDetail | null> => {
   if (isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase
         .from('vocabulary')
         .select('details')
-        .eq('word', word)
+        .ilike('word', word) // Case insensitive
         .limit(1)
         .single();
       
@@ -263,7 +288,7 @@ export const getWordDetailsFromDB = async (word: string): Promise<WordDetail | n
   const levels: CefrLevel[] = ['A1', 'A2', 'B1', 'B2'];
   for (const lvl of levels) {
     const list = getLocalItems<VocabularyEntry>(`${LOCAL_VOCAB_PREFIX}${lvl}`);
-    const found = list.find(w => w.word === word);
+    const found = list.find(w => w.word.toLowerCase() === word.toLowerCase());
     if (found && found.details) {
       return found.details;
     }
