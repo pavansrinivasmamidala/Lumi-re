@@ -31,8 +31,8 @@ const getSupabaseKey = () =>
   getEnv('SUPABASE_ANON_KEY') || 
   '';
 
-const supabaseUrl = getSupabaseUrl().trim();
-const supabaseKey = getSupabaseKey().trim();
+const supabaseUrl = "https://cbtfpuzsjtsdtvcfdkoz.supabase.co"
+const supabaseKey = "sb_publishable_1mSmGCHSqSmjQMGw8inA9g_X1OULPOJ"
 
 // Debug log to help troubleshoot (remove in production if needed)
 if (!supabaseUrl || !supabaseKey) {

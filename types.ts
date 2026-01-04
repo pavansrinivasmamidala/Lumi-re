@@ -1,3 +1,4 @@
+
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2';
 export type Difficulty = 'Easy' | 'Medium' | 'Hard';
 export type QuestionType = 'mcq' | 'fill_blank' | 'matching';
@@ -45,14 +46,33 @@ export interface QuizData {
   glossary: GlossaryEntry[];
 }
 
+export interface StoryData {
+  title: string;
+  topic: string;
+  cefr_level: string;
+  sub_difficulty: string;
+  content: string;
+  glossary: GlossaryEntry[];
+}
+
 export interface SavedQuiz {
   id: string;
   created_at: number;
   data: QuizData;
 }
 
+export interface SavedStory {
+  id: string;
+  created_at: number;
+  data: StoryData;
+}
+
 export interface QuizResponse {
   quiz: QuizData;
+}
+
+export interface StoryResponse {
+  story: StoryData;
 }
 
 export interface QuizSettings {
@@ -69,4 +89,64 @@ export interface QuizState {
   answers: Record<number, UserAnswerValue>;
   isSubmitted: boolean;
   score: number;
+}
+
+// --- VOCABULARY TYPES ---
+
+export interface WordItem {
+  word: string;
+  type: 'verb' | 'noun' | 'adjective' | 'other';
+  translation: string;
+}
+
+export interface VocabularyListResponse {
+  level: string;
+  words: WordItem[];
+}
+
+export interface Conjugation {
+  pronoun: string; // je, tu, il/elle...
+  form: string;    // suis, es, est...
+}
+
+export interface TenseData {
+  name: string; // Present, Future...
+  conjugations: Conjugation[];
+}
+
+export interface WordDetail {
+  word: string;
+  type: 'verb' | 'noun' | 'adjective' | 'other';
+  translation: string;
+  definition: string;
+  
+  // Verb Specifics
+  verb_group?: string; // 1st, 2nd, 3rd, Irregular
+  auxiliary_verb?: string; // avoir, être
+  tenses?: TenseData[];
+
+  // Noun/Adj Specifics
+  gender?: 'masculine' | 'feminine' | 'invariable';
+  forms?: {
+    masculine_singular?: string;
+    feminine_singular?: string;
+    masculine_plural?: string;
+    feminine_plural?: string;
+  };
+
+  // General
+  related_pronouns?: string[]; // For verbs: pronouns used. For others: typically N/A
+  examples: { french: string; english: string }[];
+  exceptions_or_notes?: string;
+}
+
+export interface WordDetailResponse {
+  word_data: WordDetail;
+}
+
+// Database representation of a vocabulary word
+export interface VocabularyEntry extends WordItem {
+  id?: string;
+  level: CefrLevel;
+  details?: WordDetail | null; // Cached detailed analysis
 }
