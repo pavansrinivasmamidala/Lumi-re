@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { QuizSettings, QuizResponse, StoryResponse, VocabularyListResponse, WordDetailResponse, GlossaryEntry } from "../types";
+import { QuizSettings, QuizResponse, StoryResponse, VocabularyListResponse, WordDetailResponse, GlossaryEntry, StudyGuideResponse } from "../types";
 
 const SYSTEM_INSTRUCTION = `
 You are the "French Quiz Engine," a specialized API endpoint that generates structured JSON quizzes.
@@ -47,6 +47,15 @@ Analyze the French word provided.
 - If Noun/Adj: provide gender/plural forms.
 - Provide **1 short example** sentence.
 - **Phonetics**: Provide IPA pronunciation.
+`;
+
+const STUDY_GUIDE_INSTRUCTION = `
+You are a French Language Teacher. Create a concise but comprehensive study guide for the specific topic.
+**Format**:
+1. **Concept Explanation**: Clear, simple English explanation of the grammar rule or concept.
+2. **Key Rules**: Bullet points of how to form/use it (syntax, agreements).
+3. **Exceptions**: Any irregulars or warnings (if none, leave empty).
+4. **Examples**: 5 clear examples with French and English translations.
 `;
 
 // Define schemas as plain objects to follow recommended JSON response configuration
@@ -239,6 +248,33 @@ const WORD_DETAIL_SCHEMA = {
   required: ['word_data']
 };
 
+const STUDY_GUIDE_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+        guide: {
+            type: Type.OBJECT,
+            properties: {
+                concept_explanation: { type: Type.STRING },
+                key_rules: { type: Type.ARRAY, items: { type: Type.STRING } },
+                exceptions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                examples: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            french: { type: Type.STRING },
+                            english: { type: Type.STRING }
+                        },
+                        required: ["french", "english"]
+                    }
+                }
+            },
+            required: ["concept_explanation", "key_rules", "examples"]
+        }
+    },
+    required: ["guide"]
+};
+
 export const checkApiKeyConfigured = (): boolean => {
   return !!process.env.API_KEY;
 };
@@ -365,6 +401,32 @@ export const generateWordDetails = async (word: string): Promise<WordDetailRespo
     throw error;
   }
 };
+
+export const generateStudyGuide = async (topic: string, level: string): Promise<StudyGuideResponse> => {
+    if (!process.env.API_KEY) throw new Error("API Key is missing.");
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Create a study guide for: ${topic} (Level: ${level})`,
+        config: {
+          systemInstruction: STUDY_GUIDE_INSTRUCTION,
+          responseMimeType: "application/json",
+          responseSchema: STUDY_GUIDE_SCHEMA,
+          temperature: 0.4,
+        },
+      });
+  
+      const text = response.text;
+      if (!text) throw new Error("No response from Gemini");
+  
+      return JSON.parse(text) as StudyGuideResponse;
+    } catch (error) {
+      console.error("Gemini API Error:", error);
+      throw error;
+    }
+  };
 
 // --- AUDIO GENERATION ---
 

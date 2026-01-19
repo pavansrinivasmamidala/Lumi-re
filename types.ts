@@ -151,3 +151,36 @@ export interface VocabularyEntry extends WordItem {
   level: CefrLevel;
   details?: WordDetail | null; // Cached detailed analysis
 }
+
+// --- PATH TYPES ---
+
+export interface PathCheckpoint {
+  title: string;
+  description: string;
+  examples: string[];
+}
+
+export interface UserProgress {
+  level_id: string;
+  checkpoint_title: string;
+  completed: boolean;
+  score: number;
+}
+
+export interface StudyGuideContent {
+  concept_explanation: string;
+  key_rules: string[];
+  exceptions: string[];
+  examples: { french: string; english: string }[];
+}
+
+export interface StudyGuideResponse {
+  guide: StudyGuideContent;
+}
+
+export interface StudyGuideDB {
+  id?: string;
+  level_id: string;
+  topic_id: string;
+  content: StudyGuideContent;
+}

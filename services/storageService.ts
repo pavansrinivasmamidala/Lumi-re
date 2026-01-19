@@ -1,10 +1,12 @@
 
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { QuizData, StoryData, SavedQuiz, SavedStory, VocabularyEntry, CefrLevel, WordDetail } from '../types';
+import { QuizData, StoryData, SavedQuiz, SavedStory, VocabularyEntry, CefrLevel, WordDetail, UserProgress, StudyGuideDB, StudyGuideContent } from '../types';
 
 const LOCAL_QUIZ_KEY = 'lumiere_local_quizzes';
 const LOCAL_STORY_KEY = 'lumiere_local_stories';
 const LOCAL_VOCAB_PREFIX = 'lumiere_vocab_'; 
+const LOCAL_PROGRESS_KEY = 'lumiere_progress';
+const LOCAL_GUIDES_KEY = 'lumiere_study_guides';
 
 const getUserId = () => {
   const KEY = 'lumiere_device_id';
@@ -201,4 +203,94 @@ export const searchVocabulary = async (query: string): Promise<VocabularyEntry[]
   const levels: CefrLevel[] = ['A1', 'A2', 'B1', 'B2'];
   for (const lvl of levels) allWords.push(...getLocalItems<VocabularyEntry>(`${LOCAL_VOCAB_PREFIX}${lvl}`));
   return allWords.filter(w => w.word.toLowerCase().startsWith(query.toLowerCase())).slice(0, 8);
+};
+
+// --- PATH / PROGRESS ---
+
+export const getPathProgress = async (level: string): Promise<UserProgress[]> => {
+  const userId = getUserId();
+  if (isSupabaseConfigured()) {
+    try {
+       const { data, error } = await supabase.from('user_progress').select('*').eq('user_id', userId).eq('level_id', level);
+       if (!error && data) return data as UserProgress[];
+    } catch(e) {}
+  }
+  // Local fallback
+  const allProgress = getLocalItems<UserProgress>(LOCAL_PROGRESS_KEY);
+  return allProgress.filter(p => p.level_id === level);
+};
+
+export const markCheckpointComplete = async (level: string, title: string, score: number): Promise<void> => {
+  const userId = getUserId();
+  const entry: UserProgress = {
+      level_id: level,
+      checkpoint_title: title,
+      completed: true,
+      score: score
+  };
+  
+  if (isSupabaseConfigured()) {
+    try {
+       await supabase.from('user_progress').upsert({
+         user_id: userId,
+         ...entry
+       }, { onConflict: 'user_id, level_id, checkpoint_title' });
+       return;
+    } catch(e) {}
+  }
+  
+  // Local Fallback
+  const allProgress = getLocalItems<UserProgress>(LOCAL_PROGRESS_KEY);
+  const idx = allProgress.findIndex(p => p.level_id === level && p.checkpoint_title === title);
+  if (idx > -1) {
+      // Keep highest score
+      if (score > allProgress[idx].score) allProgress[idx].score = score;
+      allProgress[idx].completed = true;
+  } else {
+      allProgress.push(entry);
+  }
+  saveLocalItems(LOCAL_PROGRESS_KEY, allProgress);
+};
+
+// --- STUDY GUIDES ---
+
+export const getStudyGuide = async (topic: string, level: string): Promise<StudyGuideContent | null> => {
+  if (isSupabaseConfigured()) {
+    try {
+        const { data, error } = await supabase.from('study_guides')
+            .select('content')
+            .eq('level_id', level)
+            .eq('topic_id', topic)
+            .single();
+        if (!error && data) return data.content as StudyGuideContent;
+    } catch (e) {}
+  }
+  
+  // Local Fallback
+  const guides = getLocalItems<StudyGuideDB>(LOCAL_GUIDES_KEY);
+  const found = guides.find(g => g.level_id === level && g.topic_id === topic);
+  return found ? found.content : null;
+};
+
+export const saveStudyGuide = async (topic: string, level: string, content: StudyGuideContent): Promise<void> => {
+   if (isSupabaseConfigured()) {
+       try {
+           await supabase.from('study_guides').upsert({
+               level_id: level,
+               topic_id: topic,
+               content: content
+           }, { onConflict: 'level_id, topic_id' });
+           return;
+       } catch (e) {}
+   }
+   
+   // Local Fallback
+   const guides = getLocalItems<StudyGuideDB>(LOCAL_GUIDES_KEY);
+   const idx = guides.findIndex(g => g.level_id === level && g.topic_id === topic);
+   const newEntry: StudyGuideDB = { level_id: level, topic_id: topic, content };
+   
+   if (idx > -1) guides[idx] = newEntry;
+   else guides.push(newEntry);
+   
+   saveLocalItems(LOCAL_GUIDES_KEY, guides);
 };

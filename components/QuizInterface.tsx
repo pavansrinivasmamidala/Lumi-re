@@ -7,10 +7,10 @@ import { CheckCircleIcon, XCircleIcon, ArrowRightIcon, ArrowPathIcon, CheckIcon,
 
 interface QuizInterfaceProps {
   quiz: QuizData;
-  onRestart: () => void;
+  onFinish: (score?: number, total?: number) => void;
 }
 
-export const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onRestart }) => {
+export const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onFinish }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, UserAnswerValue>>({});
   const [checkedState, setCheckedState] = useState<Record<number, boolean>>({});
@@ -118,11 +118,11 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onRestart })
 
         <div className="p-6 bg-slate-50 dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 flex justify-center">
             <button 
-                onClick={onRestart}
+                onClick={() => onFinish(score, quiz.questions.length)}
                 className="flex items-center gap-2 px-8 py-3 bg-french-dark dark:bg-slate-700 text-white rounded-full font-medium hover:bg-black dark:hover:bg-slate-600 transition-colors shadow-lg hover:shadow-xl"
             >
                 <ArrowPathIcon className="w-5 h-5" />
-                Generate New Quiz
+                Finish & Return
             </button>
         </div>
       </div>
@@ -144,7 +144,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onRestart })
         </div>
         
         <button 
-            onClick={onRestart}
+            onClick={() => onFinish()}
             className="group flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all text-sm font-medium"
             title="End Quiz and Return to Menu"
         >
