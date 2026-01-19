@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type, Schema, Modality } from "@google/genai";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { QuizSettings, QuizResponse, StoryResponse, VocabularyListResponse, WordDetailResponse, GlossaryEntry } from "../types";
 
 const SYSTEM_INSTRUCTION = `
@@ -24,27 +24,33 @@ You are a French Master Storyteller.
 Write engaging, creative, and culturally rich stories suitable for language learners.
 
 **Output Constraints:**
-- **content**: A cohesive story (approx 250 words). Focus on narrative flow and vocabulary richness appropriate for the level.
+- **content**: A cohesive story (approx 200-250 words). Focus on narrative flow and vocabulary richness appropriate for the level.
 - **glossary**: 
-  - Generate a "starter" glossary of the 5-10 most interesting words.
-  - The frontend handles dynamic translation, so you do NOT need to define every word. Focus on the hardest ones.
-  - The 'word' field must match the text exactly.
+  - Generate a **comprehensive** glossary of **25-30 words**. 
+  - Include ALL potentially challenging verbs, nouns, and adjectives found in the story.
+  - The goal is to minimize the need for the user to look up words externally.
+  - The 'word' field must match the text form exactly where possible.
 `;
 
 const VOCAB_LIST_INSTRUCTION = `
-Generate a list of 50 high-frequency words for the requested CEFR level.
-Mix verbs, nouns, and adjectives.
+Generate a comprehensive list of 300 high-frequency words for the requested CEFR level.
+**STRICT RULES:**
+1. The "word" field MUST be the French word.
+2. The "translation" field MUST be the English translation.
+3. Mix verbs, nouns, and adjectives appropriately for the level.
+4. Ensure no English words appear in the "word" column.
 `;
 
 const WORD_DETAIL_INSTRUCTION = `
 Analyze the French word provided.
 - If Verb: provide conjugations (Present, Passe Compose, Imparfait, Future).
 - If Noun/Adj: provide gender/plural forms.
-- Provide 2 short examples.
+- Provide **1 short example** sentence.
 - **Phonetics**: Provide IPA pronunciation.
 `;
 
-const RESPONSE_SCHEMA: Schema = {
+// Define schemas as plain objects to follow recommended JSON response configuration
+const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     quiz: {
@@ -113,7 +119,7 @@ const RESPONSE_SCHEMA: Schema = {
   required: ["quiz"],
 };
 
-const STORY_SCHEMA: Schema = {
+const STORY_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     story: {
@@ -144,7 +150,7 @@ const STORY_SCHEMA: Schema = {
   required: ["story"]
 };
 
-const VOCAB_LIST_SCHEMA: Schema = {
+const VOCAB_LIST_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     level: { type: Type.STRING },
@@ -164,7 +170,7 @@ const VOCAB_LIST_SCHEMA: Schema = {
   required: ['level', 'words']
 };
 
-const WORD_DETAIL_SCHEMA: Schema = {
+const WORD_DETAIL_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     word_data: {
@@ -252,7 +258,7 @@ export const generateQuiz = async (settings: QuizSettings): Promise<QuizResponse
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash", 
+      model: "gemini-3-flash-preview", 
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -288,13 +294,13 @@ export const generateStory = async (settings: QuizSettings): Promise<StoryRespon
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash", // Good balance of quality and speed
+      model: "gemini-3-flash-preview", 
       contents: promptText,
       config: {
         systemInstruction: STORY_SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
         responseSchema: STORY_SCHEMA,
-        temperature: 0.8, // Slightly higher creative temperature
+        temperature: 0.8, 
       },
     });
 
@@ -314,17 +320,20 @@ export const generateVocabularyList = async (level: string): Promise<VocabularyL
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `Generate a list of 50 common words for CEFR Level: ${level}. Return exactly 50 words if possible.`,
+      model: "gemini-3-pro-preview",
+      contents: `Generate a list of 300 common vocabulary words for CEFR Level: ${level}. Ensure all "word" values are in French only.`,
       config: {
         systemInstruction: VOCAB_LIST_INSTRUCTION,
         responseMimeType: "application/json",
         responseSchema: VOCAB_LIST_SCHEMA,
-        temperature: 0.6,
+        temperature: 0.4,
       },
     });
 
-    return JSON.parse(response.text!) as VocabularyListResponse;
+    const text = response.text;
+    if (!text) throw new Error("No response from Gemini");
+
+    return JSON.parse(text) as VocabularyListResponse;
   } catch (error) {
     console.error("Gemini API Error:", error);
     throw error;
@@ -337,7 +346,7 @@ export const generateWordDetails = async (word: string): Promise<WordDetailRespo
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: `Analyze this word: ${word}`,
       config: {
         systemInstruction: WORD_DETAIL_INSTRUCTION,
@@ -347,7 +356,10 @@ export const generateWordDetails = async (word: string): Promise<WordDetailRespo
       },
     });
 
-    return JSON.parse(response.text!) as WordDetailResponse;
+    const text = response.text;
+    if (!text) throw new Error("No response from Gemini");
+
+    return JSON.parse(text) as WordDetailResponse;
   } catch (error) {
     console.error("Gemini API Error:", error);
     throw error;
@@ -356,7 +368,6 @@ export const generateWordDetails = async (word: string): Promise<WordDetailRespo
 
 // --- AUDIO GENERATION ---
 
-// Helper to decode Base64 to ArrayBuffer (Uint8Array)
 function base64ToUint8Array(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -367,8 +378,6 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
-// Helper to convert Raw PCM (Int16) to AudioBuffer
-// Gemini TTS outputs 16-bit PCM at 24kHz
 export const pcmToAudioBuffer = (base64: string, ctx: AudioContext, sampleRate: number = 24000): AudioBuffer => {
   const bytes = base64ToUint8Array(base64);
   const dataInt16 = new Int16Array(bytes.buffer);
@@ -376,10 +385,9 @@ export const pcmToAudioBuffer = (base64: string, ctx: AudioContext, sampleRate: 
   const frameCount = dataInt16.length / numChannels;
   
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-  const channelData = buffer.getChannelData(0); // Mono
+  const channelData = buffer.getChannelData(0); 
   
   for (let i = 0; i < frameCount; i++) {
-    // Convert Int16 (-32768 to 32767) to Float32 (-1.0 to 1.0)
     channelData[i] = dataInt16[i] / 32768.0;
   }
   
@@ -393,9 +401,7 @@ export const generateSpeech = async (text: string): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
-      contents: {
-        parts: [{ text: text }],
-      },
+      contents: [{ parts: [{ text: text }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {

@@ -147,6 +147,25 @@ export const MatchingQuestion: React.FC<BaseQuestionProps> = ({ question, glossa
       return correctRight === right;
   };
 
+  // Prepare counters to handle duplicate right-side values correctly
+  // This logic runs every render to determine which specific button instance is "used"
+  const getRenderState = () => {
+    const counts: Record<string, number> = {};
+    Object.values(answerMap).forEach(val => {
+      counts[val] = (counts[val] || 0) + 1;
+    });
+
+    const reverseMap: Record<string, string[]> = {};
+    Object.entries(answerMap).forEach(([left, right]) => {
+        if (!reverseMap[right]) reverseMap[right] = [];
+        reverseMap[right].push(left);
+    });
+    
+    return { counts, reverseMap };
+  };
+
+  const { counts: usedCounts, reverseMap } = getRenderState();
+
   return (
     <div className="grid grid-cols-2 gap-8 relative">
       {/* Left Column */}
@@ -203,16 +222,24 @@ export const MatchingQuestion: React.FC<BaseQuestionProps> = ({ question, glossa
       <div className="space-y-3">
         <h4 className="text-sm font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Match</h4>
         {shuffledRight.map((rightItem, idx) => {
-           const isUsed = Object.values(answerMap).includes(rightItem);
+           // Determine if this specific instance is used
+           let isUsed = false;
+           if (usedCounts[rightItem] && usedCounts[rightItem] > 0) {
+               isUsed = true;
+               usedCounts[rightItem]--; // Decrement so next duplicate is not marked used if only 1 is used
+           }
            
            let borderColor = "border-slate-200 dark:border-slate-700";
            let textColor = "text-slate-900 dark:text-slate-200";
            let bgColor = "bg-white dark:bg-slate-800";
            
            if (isSubmitted) {
-                const leftKey = Object.keys(answerMap).find(key => answerMap[key] === rightItem);
-                if (leftKey) {
-                    if (isPairCorrect(leftKey, rightItem)) {
+                // Determine which left item maps to this specific right instance for coloring
+                // We consume from the reverseMap queue
+                const linkedLeft = reverseMap[rightItem]?.shift();
+
+                if (linkedLeft) {
+                    if (isPairCorrect(linkedLeft, rightItem)) {
                         borderColor = "border-green-400 bg-green-50 dark:bg-green-900/20 dark:border-green-600";
                         textColor = "text-green-900 dark:text-green-200";
                     } else {

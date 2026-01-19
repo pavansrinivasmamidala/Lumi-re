@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { generateVocabularyList, generateWordDetails } from '../services/geminiService';
-import { getVocabularyByLevel, saveVocabularyList, getWordDetailsFromDB, updateWordDetailsInDB, searchVocabulary } from '../services/storageService';
+import { getVocabularyByLevel, saveVocabularyList, getWordDetailsFromDB, updateWordDetailsInDB, searchVocabulary, clearVocabularyByLevel } from '../services/storageService';
 import { VocabularyEntry, WordDetail, CefrLevel } from '../types';
-import { ArrowLeftIcon, BookOpenIcon, SparklesIcon, CircleStackIcon, SpeakerWaveIcon, MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/solid';
+import { ArrowLeftIcon, BookOpenIcon, SparklesIcon, CircleStackIcon, SpeakerWaveIcon, MagnifyingGlassIcon, XMarkIcon, ArrowPathIcon } from '@heroicons/react/24/solid';
 import { InteractiveText } from './InteractiveText';
 
 const LEVELS: { id: CefrLevel; label: string; desc: string }[] = [
@@ -25,7 +25,8 @@ export const VocabularyExplorer: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<VocabularyEntry[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Fix: use ReturnType<typeof setTimeout> to avoid dependency on NodeJS namespace in browser
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const playAudio = (text: string) => {
     const u = new SpeechSynthesisUtterance(text);
@@ -36,18 +37,12 @@ export const VocabularyExplorer: React.FC = () => {
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;
     setSearchQuery(q);
-
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     if (q.trim().length < 2) {
       setSearchResults([]);
       setShowSearchResults(false);
       return;
     }
-
-    // Debounce search
     searchTimeoutRef.current = setTimeout(async () => {
       const results = await searchVocabulary(q);
       setSearchResults(results);
@@ -62,35 +57,26 @@ export const VocabularyExplorer: React.FC = () => {
   };
 
   const handleSearchResultClick = (entry: VocabularyEntry) => {
-    clearSearch(); // Close search
+    clearSearch();
     handleWordSelect(entry);
   };
 
-  const handleLevelSelect = async (lvl: CefrLevel) => {
-    setSelectedLevel(lvl);
+  const fetchAndSync = async (lvl: CefrLevel, forceRefresh: boolean = false) => {
     setLoading(true);
-    setLoadingText('Checking database...');
-    
+    setLoadingText(forceRefresh ? 'Clearing current bank...' : 'Checking database...');
     try {
-      // 1. Try to fetch from DB
-      let words = await getVocabularyByLevel(lvl);
+      if (forceRefresh) {
+        await clearVocabularyByLevel(lvl);
+      }
       
-      // 2. If empty, Seed DB using AI
+      let words = await getVocabularyByLevel(lvl);
       if (words.length === 0) {
-        setLoadingText(`Seeding database for ${lvl}...`);
+        setLoadingText(`Generating fresh 300 words for ${lvl}...`);
         const response = await generateVocabularyList(lvl);
-        
-        // Convert response to proper DB entries
-        const vocabEntries: VocabularyEntry[] = response.words.map(w => ({
-            ...w,
-            level: lvl,
-            details: null
-        }));
-
+        const vocabEntries: VocabularyEntry[] = response.words.map(w => ({ ...w, level: lvl, details: null }));
         await saveVocabularyList(lvl, vocabEntries);
         words = vocabEntries;
       }
-      
       setWordList(words);
       setView('list');
     } catch (e) {
@@ -100,19 +86,21 @@ export const VocabularyExplorer: React.FC = () => {
     }
   };
 
+  const handleLevelSelect = (lvl: CefrLevel) => {
+    setSelectedLevel(lvl);
+    fetchAndSync(lvl);
+  };
+
   const handleWordSelect = async (wordEntry: VocabularyEntry) => {
     setLoading(true);
     setLoadingText('Loading word details...');
     try {
-      // 1. Check if we already have the details in memory/list
       if (wordEntry.details) {
           setSelectedWord(wordEntry.details);
           setView('detail');
           setLoading(false);
           return;
       }
-
-      // 2. Check DB explicitly (in case list was stale or minimal fetch)
       const dbDetails = await getWordDetailsFromDB(wordEntry.word);
       if (dbDetails) {
           setSelectedWord(dbDetails);
@@ -120,22 +108,15 @@ export const VocabularyExplorer: React.FC = () => {
           setLoading(false);
           return;
       }
-
-      // 3. Generate via AI and Save to DB
       setLoadingText('Analyzing grammar...');
       const response = await generateWordDetails(wordEntry.word);
       const newDetails = response.word_data;
-      
       await updateWordDetailsInDB(wordEntry.word, newDetails);
-      
-      // Update local state list if we are in list view and editing that list
       if (view === 'list' && selectedLevel === wordEntry.level) {
           setWordList(prev => prev.map(w => w.word === wordEntry.word ? { ...w, details: newDetails } : w));
       }
-      
       setSelectedWord(newDetails);
       setView('detail');
-
     } catch (e) {
       console.error(e);
     } finally {
@@ -145,15 +126,8 @@ export const VocabularyExplorer: React.FC = () => {
 
   const goBack = () => {
     if (view === 'detail') {
-        // If we were viewing a searched word from a different level, go back to levels or just keep list state?
-        // Simplest: go back to list if level matches, otherwise levels
-        if (selectedLevel) {
-            setView('list'); 
-        } else {
-            setView('levels');
-        }
-    }
-    else if (view === 'list') setView('levels');
+        if (selectedLevel) setView('list'); else setView('levels');
+    } else if (view === 'list') setView('levels');
   };
 
   if (loading) {
@@ -163,88 +137,52 @@ export const VocabularyExplorer: React.FC = () => {
             <div className="w-20 h-20 border-4 border-slate-100 dark:border-slate-800 rounded-full"></div>
             <div className="w-20 h-20 border-4 border-french-blue dark:border-blue-500 rounded-full border-t-transparent animate-spin absolute top-0 left-0"></div>
          </div>
-         <h3 className="text-2xl font-serif font-bold text-slate-800 dark:text-slate-100 animate-pulse">
-           {loadingText}
-         </h3>
-         <p className="text-slate-500 dark:text-slate-400 mt-2">
-           Consulting the French language engine
-         </p>
+         <h3 className="text-2xl font-serif font-bold text-slate-800 dark:text-slate-100 animate-pulse text-center">{loadingText}</h3>
+         <p className="text-slate-500 dark:text-slate-400 mt-2 text-center">Consulting the French language engine</p>
       </div>
     );
   }
 
-  // Common Header with Search
   const renderHeader = () => (
       <div className="text-center mb-8 relative animate-fade-in z-20">
         {view === 'levels' && (
            <>
             <h1 className="text-4xl md:text-5xl font-serif font-bold text-slate-800 dark:text-slate-100 mb-6">Vocabulary Explorer</h1>
-            <p className="text-lg text-slate-500 dark:text-slate-400 mb-6">
-                Explore words by proficiency level. Data is seeded once and cached.
-            </p>
+            <p className="text-lg text-slate-500 dark:text-slate-400 mb-6">Explore words by proficiency level. 300 words per level.</p>
            </>
         )}
-        
-        {/* Search Bar */}
         <div className="relative max-w-md mx-auto">
            <div className="relative">
-                <input 
-                    type="text"
-                    value={searchQuery}
-                    onChange={handleSearchChange}
-                    placeholder="Search dictionary..."
-                    className="w-full pl-10 pr-10 py-3 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-french-blue dark:focus:ring-blue-500 outline-none shadow-sm transition-all relative z-30"
-                />
+                <input type="text" value={searchQuery} onChange={handleSearchChange} placeholder="Search dictionary..." className="w-full pl-10 pr-10 py-3 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-french-blue dark:focus:ring-blue-500 outline-none shadow-sm transition-all relative z-30" />
                 <MagnifyingGlassIcon className="w-5 h-5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 z-30" />
                 {searchQuery && (
-                    <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 z-30">
-                        <XMarkIcon className="w-5 h-5" />
-                    </button>
+                    <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 z-30"><XMarkIcon className="w-5 h-5" /></button>
                 )}
            </div>
-
-           {/* Dropdown Results */}
            {showSearchResults && (
                <div className="absolute top-1/2 left-0 right-0 pt-6 bg-white dark:bg-slate-800 rounded-b-xl rounded-t-lg shadow-xl border border-slate-100 dark:border-slate-700 max-h-64 overflow-y-auto overflow-hidden z-20">
-                  {searchResults.length > 0 ? (
-                      searchResults.map((result, idx) => (
-                          <button 
-                            key={idx}
-                            onClick={() => handleSearchResultClick(result)}
-                            className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-800 last:border-0 flex justify-between items-center group transition-colors"
-                          >
-                             <div>
-                                <span className="font-bold text-slate-800 dark:text-slate-100 capitalize">{result.word}</span>
-                                <span className="ml-2 text-xs text-slate-500 dark:text-slate-400 italic">- {result.translation}</span>
-                             </div>
-                             <span className="text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 uppercase">
-                                {result.level}
-                             </span>
-                          </button>
-                      ))
-                  ) : (
-                      <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 text-center">
-                          No words found.
-                      </div>
-                  )}
+                  {searchResults.length > 0 ? searchResults.map((result, idx) => (
+                      <button key={idx} onClick={() => handleSearchResultClick(result)} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-50 dark:border-slate-800 last:border-0 flex justify-between items-center group transition-colors">
+                         <div>
+                            <span className="font-bold text-slate-800 dark:text-slate-100 capitalize">{result.word}</span>
+                            <span className="ml-2 text-xs text-slate-500 dark:text-slate-400 italic">- {result.translation}</span>
+                         </div>
+                         <span className="text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 uppercase">{result.level}</span>
+                      </button>
+                  )) : <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 text-center">No words found.</div>}
                </div>
            )}
         </div>
       </div>
   );
 
-  // --- VIEW 1: LEVELS ---
   if (view === 'levels') {
     return (
       <div className="w-full max-w-4xl mx-auto">
         {renderHeader()}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in-up z-0 relative">
             {LEVELS.map((lvl) => (
-                <button
-                    key={lvl.id}
-                    onClick={() => handleLevelSelect(lvl.id)}
-                    className="group relative p-8 border-2 border-slate-100 dark:border-slate-800 rounded-2xl hover:bg-white dark:hover:bg-slate-800 hover:border-french-blue dark:hover:border-blue-500 transition-all text-left flex flex-col justify-center bg-white dark:bg-slate-900 shadow-sm hover:shadow-xl"
-                >
+                <button key={lvl.id} onClick={() => handleLevelSelect(lvl.id)} className="group relative p-8 border-2 border-slate-100 dark:border-slate-800 rounded-2xl hover:bg-white dark:hover:bg-slate-800 hover:border-french-blue dark:hover:border-blue-500 transition-all text-left flex flex-col justify-center bg-white dark:bg-slate-900 shadow-sm hover:shadow-xl">
                     <span className="text-5xl font-black text-slate-100 dark:text-slate-700 group-hover:text-blue-50 dark:group-hover:text-slate-600 absolute right-6 top-6 transition-colors">{lvl.id}</span>
                     <h3 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2 group-hover:text-french-blue dark:group-hover:text-blue-400 transition-colors relative z-10">{lvl.label}</h3>
                     <p className="text-slate-500 dark:text-slate-400 leading-relaxed group-hover:text-slate-600 dark:group-hover:text-slate-300 relative z-10">{lvl.desc}</p>
@@ -255,7 +193,6 @@ export const VocabularyExplorer: React.FC = () => {
     );
   }
 
-  // --- VIEW 2: WORD LIST ---
   if (view === 'list') {
     return (
       <div className="w-full max-w-4xl mx-auto flex flex-col gap-6">
@@ -263,41 +200,31 @@ export const VocabularyExplorer: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl min-h-[600px] flex flex-col animate-fade-in transition-colors z-0 relative">
             <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-french-blue dark:bg-slate-800 rounded-t-2xl text-white">
                 <div className="flex items-center gap-4">
-                    <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                        <ArrowLeftIcon className="w-5 h-5" />
-                    </button>
+                    <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-full transition-colors"><ArrowLeftIcon className="w-5 h-5" /></button>
                     <div>
                         <span className="text-xs font-bold uppercase tracking-wider opacity-80">Level {selectedLevel}</span>
                         <h2 className="text-2xl font-serif font-bold">Word Bank</h2>
                     </div>
                 </div>
-                <div className="flex items-center gap-2 text-xs bg-black/20 px-3 py-1 rounded-full">
-                    <CircleStackIcon className="w-4 h-4" />
-                    <span>{wordList.length} words loaded</span>
+                <div className="flex items-center gap-4">
+                    <button 
+                        onClick={() => selectedLevel && fetchAndSync(selectedLevel, true)}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-bold transition-all"
+                        title="Delete current bank and regenerate 300 words"
+                    >
+                        <ArrowPathIcon className="w-4 h-4" />
+                        <span className="hidden sm:inline">Sync & Rebuild</span>
+                    </button>
+                    <div className="flex items-center gap-2 text-xs bg-black/20 px-3 py-1 rounded-full"><CircleStackIcon className="w-4 h-4" /><span>{wordList.length} words</span></div>
                 </div>
             </div>
-            
-            <div className="p-8 grid grid-cols-2 md:grid-cols-4 gap-4 overflow-y-auto">
+            <div className="p-8 grid grid-cols-2 md:grid-cols-4 gap-4 overflow-y-auto max-h-[700px]">
                 {wordList.map((item, idx) => (
-                    <button 
-                    key={idx}
-                    onClick={() => handleWordSelect(item)}
-                    className="relative p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:border-french-blue dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-left transition-all group"
-                    >
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); playAudio(item.word); }}
-                            className="absolute top-2 right-2 p-1.5 text-slate-300 dark:text-slate-600 hover:text-french-blue dark:hover:text-blue-400 hover:bg-white dark:hover:bg-slate-700 rounded-full transition-colors z-10"
-                            title="Pronounce"
-                        >
-                            <SpeakerWaveIcon className="w-4 h-4" />
-                        </button>
-
-                        <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex justify-between">
-                            {item.type}
-                            {item.details && <SparklesIcon className="w-3 h-3 text-yellow-500 mr-6" title="Detailed view cached" />}
-                        </div>
-                        <div className="font-bold text-slate-800 dark:text-slate-100 text-lg mb-1 capitalize truncate pr-4" title={item.word}>{item.word}</div>
-                        <div className="text-sm text-slate-500 dark:text-slate-400 italic truncate" title={item.translation}>{item.translation}</div>
+                    <button key={idx} onClick={() => handleWordSelect(item)} className="relative p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:border-french-blue dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-left transition-all group">
+                        <button onClick={(e) => { e.stopPropagation(); playAudio(item.word); }} className="absolute top-2 right-2 p-1.5 text-slate-300 dark:text-slate-600 hover:text-french-blue dark:hover:text-blue-400 hover:bg-white dark:hover:bg-slate-700 rounded-full transition-colors z-10"><SpeakerWaveIcon className="w-4 h-4" /></button>
+                        <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex justify-between">{item.type}{item.details && <SparklesIcon className="w-3 h-3 text-yellow-500 mr-6" />}</div>
+                        <div className="font-bold text-slate-800 dark:text-slate-100 text-lg mb-1 capitalize truncate pr-4">{item.word}</div>
+                        <div className="text-sm text-slate-500 dark:text-slate-400 italic truncate">{item.translation}</div>
                     </button>
                 ))}
             </div>
@@ -306,91 +233,53 @@ export const VocabularyExplorer: React.FC = () => {
     );
   }
 
-  // --- VIEW 3: DETAIL ---
   const d = selectedWord!;
   const isVerb = d.type === 'verb';
-
   return (
     <div className="w-full max-w-4xl mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-xl overflow-hidden animate-fade-in transition-colors">
-        {/* Header */}
         <div className="bg-french-dark dark:bg-slate-950 text-white p-8 relative">
-            <button onClick={goBack} className="absolute top-8 left-8 p-2 text-slate-400 hover:text-white transition-colors">
-                <ArrowLeftIcon className="w-6 h-6" />
-            </button>
+            <button onClick={goBack} className="absolute top-8 left-8 p-2 text-slate-400 hover:text-white transition-colors"><ArrowLeftIcon className="w-6 h-6" /></button>
             <div className="text-center mt-4 flex flex-col items-center">
-                <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold tracking-wider mb-3 uppercase 
-                    ${isVerb ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'}`}>
-                    {d.type}
-                </span>
+                <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold tracking-wider mb-3 uppercase ${isVerb ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'}`}>{d.type}</span>
                 <div className="flex items-center gap-4 mb-2">
                     <h1 className="text-5xl font-serif font-bold capitalize">{d.word}</h1>
-                    <button 
-                        onClick={() => playAudio(d.word)}
-                        className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                        title="Pronounce"
-                    >
-                        <SpeakerWaveIcon className="w-8 h-8" />
-                    </button>
+                    <button onClick={() => playAudio(d.word)} className="p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"><SpeakerWaveIcon className="w-8 h-8" /></button>
                 </div>
                 <p className="text-xl opacity-90 font-light">{d.translation}</p>
             </div>
-            {isVerb && (
-                <div className="flex justify-center gap-4 mt-6 text-sm text-slate-400">
-                    {d.verb_group && <span>Group: <span className="text-white">{d.verb_group}</span></span>}
-                    {d.auxiliary_verb && <span>Aux: <span className="text-white">{d.auxiliary_verb}</span></span>}
-                </div>
-            )}
         </div>
-
         <div className="p-8">
-            {/* Definition & Examples */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-xl border border-slate-100 dark:border-slate-800">
-                    <h3 className="font-bold text-slate-400 dark:text-slate-500 text-xs uppercase tracking-wider mb-4 flex items-center gap-2">
-                        <BookOpenIcon className="w-4 h-4" /> Definition
-                    </h3>
+                    <h3 className="font-bold text-slate-400 dark:text-slate-500 text-xs uppercase tracking-wider mb-4 flex items-center gap-2"><BookOpenIcon className="w-4 h-4" /> Definition</h3>
                     <p className="text-lg text-slate-800 dark:text-slate-200 leading-relaxed mb-4">{d.definition}</p>
-                    {d.exceptions_or_notes && (
-                        <div className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg border border-amber-100 dark:border-amber-800/50">
-                            <strong>Note:</strong> {d.exceptions_or_notes}
-                        </div>
-                    )}
+                    {d.exceptions_or_notes && <div className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg border border-amber-100 dark:border-amber-800/50"><strong>Note:</strong> {d.exceptions_or_notes}</div>}
                 </div>
                 <div className="space-y-4">
-                     <h3 className="font-bold text-slate-400 dark:text-slate-500 text-xs uppercase tracking-wider mb-2 flex items-center gap-2">
-                        <SparklesIcon className="w-4 h-4" /> Examples
-                    </h3>
+                     <h3 className="font-bold text-slate-400 dark:text-slate-500 text-xs uppercase tracking-wider mb-2 flex items-center gap-2"><SparklesIcon className="w-4 h-4" /> Examples</h3>
                     {d.examples.map((ex, i) => (
                         <div key={i} className="pl-4 border-l-2 border-french-blue dark:border-blue-500">
-                            <div className="text-slate-800 dark:text-slate-200 font-medium italic mb-1 text-lg leading-relaxed">
-                                "<InteractiveText text={ex.french} glossary={[]} level={selectedLevel || 'A1'} />"
-                            </div>
+                            <div className="text-slate-800 dark:text-slate-200 font-medium italic mb-1 text-lg leading-relaxed">"<InteractiveText text={ex.french} glossary={[]} level={selectedLevel || 'A1'} />"</div>
                             <p className="text-slate-500 dark:text-slate-400 text-sm">{ex.english}</p>
                         </div>
                     ))}
                 </div>
             </div>
-
-            {/* Verb Conjugations */}
             {isVerb && d.tenses && (
                 <div>
                     <h3 className="text-2xl font-serif font-bold text-slate-800 dark:text-slate-100 mb-6 border-b border-slate-100 dark:border-slate-800 pb-2">Conjugations</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {d.tenses.map((tense) => (
                             <div key={tense.name} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
-                                <div className="bg-slate-50 dark:bg-slate-800 p-3 border-b border-slate-200 dark:border-slate-700 font-bold text-center text-slate-700 dark:text-slate-300">
-                                    {tense.name}
-                                </div>
+                                <div className="bg-slate-50 dark:bg-slate-800 p-3 border-b border-slate-200 dark:border-slate-700 font-bold text-center text-slate-700 dark:text-slate-300">{tense.name}</div>
                                 <div className="p-4">
                                     <table className="w-full text-sm">
-                                        <tbody>
-                                            {tense.conjugations.map((c, idx) => (
-                                                <tr key={idx} className="border-b border-slate-50 dark:border-slate-800 last:border-0">
-                                                    <td className="py-2 text-slate-400 dark:text-slate-500 w-1/3 text-right pr-4 font-medium">{c.pronoun}</td>
-                                                    <td className="py-2 text-slate-800 dark:text-blue-300 font-bold">{c.form}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
+                                        <tbody>{tense.conjugations.map((c, idx) => (
+                                            <tr key={idx} className="border-b border-slate-50 dark:border-slate-800 last:border-0">
+                                                <td className="py-2 text-slate-400 dark:text-slate-500 w-1/3 text-right pr-4 font-medium">{c.pronoun}</td>
+                                                <td className="py-2 text-slate-800 dark:text-blue-300 font-bold">{c.form}</td>
+                                            </tr>
+                                        ))}</tbody>
                                     </table>
                                 </div>
                             </div>
@@ -398,44 +287,17 @@ export const VocabularyExplorer: React.FC = () => {
                     </div>
                 </div>
             )}
-
-            {/* Noun/Adjective Forms */}
             {!isVerb && d.forms && (
                 <div>
                     <h3 className="text-2xl font-serif font-bold text-slate-800 dark:text-slate-100 mb-6 border-b border-slate-100 dark:border-slate-800 pb-2">Variations</h3>
                     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm max-w-lg">
                         <table className="w-full">
-                            <thead>
-                                <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider text-left">
-                                    <th className="p-4 font-medium">Form</th>
-                                    <th className="p-4 font-medium">Spelling</th>
-                                </tr>
-                            </thead>
+                            <thead><tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider text-left"><th className="p-4 font-medium">Form</th><th className="p-4 font-medium">Spelling</th></tr></thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                {d.forms.masculine_singular && (
-                                    <tr>
-                                        <td className="p-4 text-slate-500 dark:text-slate-400">Masculine Singular</td>
-                                        <td className="p-4 font-bold text-slate-800 dark:text-blue-300">{d.forms.masculine_singular}</td>
-                                    </tr>
-                                )}
-                                {d.forms.feminine_singular && (
-                                    <tr>
-                                        <td className="p-4 text-slate-500 dark:text-slate-400">Feminine Singular</td>
-                                        <td className="p-4 font-bold text-slate-800 dark:text-blue-300">{d.forms.feminine_singular}</td>
-                                    </tr>
-                                )}
-                                {d.forms.masculine_plural && (
-                                    <tr>
-                                        <td className="p-4 text-slate-500 dark:text-slate-400">Masculine Plural</td>
-                                        <td className="p-4 font-bold text-slate-800 dark:text-blue-300">{d.forms.masculine_plural}</td>
-                                    </tr>
-                                )}
-                                {d.forms.feminine_plural && (
-                                    <tr>
-                                        <td className="p-4 text-slate-500 dark:text-slate-400">Feminine Plural</td>
-                                        <td className="p-4 font-bold text-slate-800 dark:text-blue-300">{d.forms.feminine_plural}</td>
-                                    </tr>
-                                )}
+                                {d.forms.masculine_singular && <tr><td className="p-4 text-slate-500 dark:text-slate-400">Masculine Singular</td><td className="p-4 font-bold text-slate-800 dark:text-blue-300">{d.forms.masculine_singular}</td></tr>}
+                                {d.forms.feminine_singular && <tr><td className="p-4 text-slate-500 dark:text-slate-400">Feminine Singular</td><td className="p-4 font-bold text-slate-800 dark:text-blue-300">{d.forms.feminine_singular}</td></tr>}
+                                {d.forms.masculine_plural && <tr><td className="p-4 text-slate-500 dark:text-slate-400">Masculine Plural</td><td className="p-4 font-bold text-slate-800 dark:text-blue-300">{d.forms.masculine_plural}</td></tr>}
+                                {d.forms.feminine_plural && <tr><td className="p-4 text-slate-500 dark:text-slate-400">Feminine Plural</td><td className="p-4 font-bold text-slate-800 dark:text-blue-300">{d.forms.feminine_plural}</td></tr>}
                             </tbody>
                         </table>
                     </div>
