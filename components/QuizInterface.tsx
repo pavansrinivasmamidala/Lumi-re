@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { QuizData, UserAnswerValue, Question } from '../types';
-import { McqQuestion, FillBlankQuestion, MatchingQuestion } from './QuestionRenderers';
+import { McqQuestion, FillBlankQuestion, MatchingQuestion, TranslationQuestion } from './QuestionRenderers';
 import { InteractiveText } from './InteractiveText';
 import { CheckCircleIcon, XCircleIcon, ArrowRightIcon, ArrowPathIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/solid';
 
@@ -26,18 +26,33 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onFinish }) 
     setAnswers(prev => ({ ...prev, [currentQuestion.id]: val }));
   };
 
+  const normalizeString = (str: string) => {
+      if (!str) return "";
+      return str.toLowerCase().replace(/[.,!?;:]/g, "").trim();
+  };
+
   const checkCorrectness = (q: Question, ans: UserAnswerValue) => {
       if (!ans) return false;
+      
       if (q.type === 'mcq') {
-        return ans === q.content.correct_answer;
-      } else if (q.type === 'fill_blank') {
-        return typeof ans === 'string' && ans.toLowerCase().trim() === (q.content.correct_answer || '').toLowerCase().trim();
-      } else if (q.type === 'matching') {
+        // Normalize both to handle potential trailing spaces from API generation
+        return typeof ans === 'string' && normalizeString(ans) === normalizeString(q.content.correct_answer || '');
+      } 
+      else if (q.type === 'fill_blank') {
+        return typeof ans === 'string' && normalizeString(ans) === normalizeString(q.content.correct_answer || '');
+      } 
+      else if (q.type === 'matching') {
         const userPairs = ans as Record<string, string>;
         const correctPairs = q.content.pairs || [];
         // Must match all pairs
         if (Object.keys(userPairs).length !== correctPairs.length) return false;
         return correctPairs.every(p => userPairs[p.left] === p.right);
+      }
+      else if (q.type === 'sentence_translation') {
+        if (typeof ans !== 'string') return false;
+        const normalizedUser = normalizeString(ans);
+        const validAnswers = [q.content.correct_answer, ...(q.content.accepted_answers || [])].filter(Boolean) as string[];
+        return validAnswers.some(valid => normalizeString(valid) === normalizedUser);
       }
       return false;
   };
@@ -219,13 +234,23 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onFinish }) 
                     level={quiz.cefr_level} 
                 />
             )}
+            {currentQuestion.type === 'sentence_translation' && (
+                <TranslationQuestion 
+                    question={currentQuestion} 
+                    glossary={glossary}
+                    currentAnswer={answers[currentQuestion.id]} 
+                    onAnswer={handleAnswer} 
+                    isSubmitted={isChecked}
+                    level={quiz.cefr_level} 
+                />
+            )}
         </div>
 
         {/* Explanation Block (Immediate Feedback) */}
         {isChecked && (
              <div className={`mt-8 p-5 rounded-xl border animate-fade-in ${isCurrentCorrect ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800/50' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/50'}`}>
                  <h4 className={`text-sm font-bold uppercase tracking-wide mb-2 ${isCurrentCorrect ? 'text-green-800 dark:text-green-300' : 'text-red-800 dark:text-red-300'}`}>
-                    Explanation
+                    {isCurrentCorrect ? 'Well Done!' : 'Why is this incorrect?'}
                  </h4>
                  <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
                     {currentQuestion.explanation}

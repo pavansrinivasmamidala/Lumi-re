@@ -3,20 +3,21 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { QuizSettings, QuizResponse, StoryResponse, VocabularyListResponse, WordDetailResponse, GlossaryEntry, StudyGuideResponse } from "../types";
 
 const SYSTEM_INSTRUCTION = `
-You are the "French Quiz Engine," a specialized API endpoint that generates structured JSON quizzes.
+You are the "French Quiz Engine". Generate a structured JSON response.
 
-**Content Requirements:**
-1. Generate **10 questions** per request.
-2. Mix question types (MCQ, Fill in blank, Matching).
-3. **Fill-in-the-blank Rule:** 
-   - Use exactly five underscores '_____' for blanks. 
-   - 'correct_answer' MUST be the exact missing word.
+**Output Requirements:**
+1. **Quantity**: Exactly **10 questions** and **5 glossary items**.
+2. **Types**: Mix 'mcq', 'fill_blank', 'matching', 'sentence_translation'.
+3. **Brevity**: Keep 'explanation' under 25 words. Keep glossary 'definition' under 12 words.
 
-**Glossary Constraint (CRITICAL):**
-- You MUST include a "glossary" array.
-- **STRICT LIMIT:** Generate EXACTLY 8 glossary entries. Do not generate more.
-- Select only the 8 most difficult/relevant words from the quiz.
-- Keep definitions and examples short and concise.
+**Question Rules:**
+- **Fill-in-the-blank**: Use '_____' (5 underscores). 'correct_answer' must be the exact missing word.
+- **Translation**: 'source_sentence' is English. 'correct_answer' is French. 'accepted_answers' MUST include "Tu" and "Vous" variations if applicable.
+- **Matching**: 'correct_answer' field is ignored by the UI but required by schema; set it to "Match the pairs".
+
+**Reliability**:
+- You MUST provide 'correct_answer' for ALL questions.
+- For 'mcq', 'correct_answer' MUST be one of the 'options'.
 `;
 
 const STORY_SYSTEM_INSTRUCTION = `
@@ -24,38 +25,35 @@ You are a French Master Storyteller.
 Write engaging, creative, and culturally rich stories suitable for language learners.
 
 **Output Constraints:**
-- **content**: A cohesive story (approx 200-250 words). Focus on narrative flow and vocabulary richness appropriate for the level.
+- **content**: A cohesive story (approx 200 words).
 - **glossary**: 
-  - Generate a **comprehensive** glossary of **25-30 words**. 
-  - Include ALL potentially challenging verbs, nouns, and adjectives found in the story.
-  - The goal is to minimize the need for the user to look up words externally.
+  - Generate a **comprehensive** glossary of **15-20 words**. 
+  - Include ALL challenging verbs, nouns, and adjectives found in the story.
   - The 'word' field must match the text form exactly where possible.
 `;
 
 const VOCAB_LIST_INSTRUCTION = `
-Generate a comprehensive list of 300 high-frequency words for the requested CEFR level.
-**STRICT RULES:**
-1. The "word" field MUST be the French word.
-2. The "translation" field MUST be the English translation.
-3. Mix verbs, nouns, and adjectives appropriately for the level.
-4. Ensure no English words appear in the "word" column.
+Generate a list of 300 high-frequency words for the requested CEFR level.
+**Rules:**
+1. "word": French only.
+2. "translation": English.
+3. Mix verbs, nouns, adjectives.
 `;
 
 const WORD_DETAIL_INSTRUCTION = `
-Analyze the French word provided.
-- If Verb: provide conjugations (Present, Passe Compose, Imparfait, Future).
-- If Noun/Adj: provide gender/plural forms.
-- Provide **1 short example** sentence.
-- **Phonetics**: Provide IPA pronunciation.
+Analyze the French word.
+- Verb: provide conjugations.
+- Noun/Adj: provide gender/plural.
+- 1 short example.
+- Phonetics: IPA.
 `;
 
 const STUDY_GUIDE_INSTRUCTION = `
-You are a French Language Teacher. Create a concise but comprehensive study guide for the specific topic.
+Create a concise study guide.
 **Format**:
-1. **Concept Explanation**: Clear, simple English explanation of the grammar rule or concept.
-2. **Key Rules**: Bullet points of how to form/use it (syntax, agreements).
-3. **Exceptions**: Any irregulars or warnings (if none, leave empty).
-4. **Examples**: 5 clear examples with French and English translations.
+1. **Concept**: Simple English explanation.
+2. **Rules**: Bullet points.
+3. **Examples**: 5 clear examples (French/English).
 `;
 
 // Define schemas as plain objects to follow recommended JSON response configuration
@@ -75,7 +73,7 @@ const RESPONSE_SCHEMA = {
             type: Type.OBJECT,
             properties: {
               id: { type: Type.INTEGER },
-              type: { type: Type.STRING, enum: ["mcq", "fill_blank", "matching"] },
+              type: { type: Type.STRING, enum: ["mcq", "fill_blank", "matching", "sentence_translation"] },
               question_text: { type: Type.STRING },
               explanation: { type: Type.STRING },
               content: {
@@ -91,6 +89,8 @@ const RESPONSE_SCHEMA = {
                   sentence_with_blank: { 
                     type: Type.STRING
                   },
+                  source_sentence: { type: Type.STRING },
+                  accepted_answers: { type: Type.ARRAY, items: { type: Type.STRING } },
                   pairs: {
                     type: Type.ARRAY,
                     items: {
@@ -103,6 +103,7 @@ const RESPONSE_SCHEMA = {
                     },
                   },
                 },
+                required: ["correct_answer"] // Force model to generate this field always
               },
             },
             required: ["id", "type", "question_text", "content", "explanation"],
@@ -300,7 +301,7 @@ export const generateQuiz = async (settings: QuizSettings): Promise<QuizResponse
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
         responseSchema: RESPONSE_SCHEMA,
-        temperature: 0.4, 
+        temperature: 0.35, 
       },
     });
 

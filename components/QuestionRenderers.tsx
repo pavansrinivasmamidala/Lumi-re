@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Question, GlossaryEntry } from '../types';
 import { InteractiveText } from './InteractiveText';
-import { PencilSquareIcon } from '@heroicons/react/24/solid';
+import { PencilSquareIcon, LanguageIcon } from '@heroicons/react/24/solid';
 
 interface BaseQuestionProps {
   question: Question;
@@ -13,22 +13,27 @@ interface BaseQuestionProps {
   level?: string; // Add level prop
 }
 
+const normalize = (s: string) => s ? s.toLowerCase().replace(/[.,!?;:]/g, '').trim() : "";
+
 // --- MCQ Component ---
 export const McqQuestion: React.FC<BaseQuestionProps> = ({ question, glossary, currentAnswer, onAnswer, isSubmitted, level }) => {
   const options = question.content.options || [];
+  const correctAnswerNorm = normalize(question.content.correct_answer || "");
 
   return (
     <div className="space-y-3">
       {options.map((option, idx) => {
         const isSelected = currentAnswer === option;
-        const isCorrect = isSubmitted && option === question.content.correct_answer;
-        const isWrong = isSubmitted && isSelected && option !== question.content.correct_answer;
+        const optionNorm = normalize(option);
+        
+        const isOptionCorrect = isSubmitted && optionNorm === correctAnswerNorm;
+        const isWrongSelection = isSubmitted && isSelected && optionNorm !== correctAnswerNorm;
 
         let baseClasses = "w-full p-4 text-left border rounded-lg transition-all duration-200 flex items-center group relative";
         
         if (isSubmitted) {
-            if (isCorrect) baseClasses += " bg-green-50 dark:bg-green-900/20 border-green-500 dark:border-green-500 text-green-900 dark:text-green-100";
-            else if (isWrong) baseClasses += " bg-red-50 dark:bg-red-900/20 border-red-500 dark:border-red-500 text-red-900 dark:text-red-100";
+            if (isOptionCorrect) baseClasses += " bg-green-50 dark:bg-green-900/20 border-green-500 dark:border-green-500 text-green-900 dark:text-green-100";
+            else if (isWrongSelection) baseClasses += " bg-red-50 dark:bg-red-900/20 border-red-500 dark:border-red-500 text-red-900 dark:text-red-100";
             else baseClasses += " border-gray-200 dark:border-slate-700 opacity-60 dark:text-slate-400";
         } else {
             if (isSelected) baseClasses += " border-french-blue dark:border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-french-blue dark:text-blue-300 ring-1 ring-french-blue dark:ring-blue-500";
@@ -65,7 +70,7 @@ export const FillBlankQuestion: React.FC<BaseQuestionProps> = ({ question, gloss
   };
 
   const isCorrect = isSubmitted && 
-    (currentAnswer || "").toLowerCase().trim() === (question.content.correct_answer || "").toLowerCase().trim();
+    normalize(currentAnswer || "") === normalize(question.content.correct_answer || "");
 
   return (
     <div className="py-8 px-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center transition-colors">
@@ -106,6 +111,69 @@ export const FillBlankQuestion: React.FC<BaseQuestionProps> = ({ question, gloss
               </div>
           </div>
       )}
+    </div>
+  );
+};
+
+// --- Sentence Translation Component ---
+export const TranslationQuestion: React.FC<BaseQuestionProps> = ({ question, glossary, currentAnswer, onAnswer, isSubmitted, level }) => {
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    onAnswer(e.target.value);
+  };
+
+  // Validation logic will be handled by parent, but we use this for visual coloring
+  // This logic is duplicated slightly from QuizInterface but useful for self-containment color logic
+  const validAnswers = [question.content.correct_answer, ...(question.content.accepted_answers || [])].filter(Boolean) as string[];
+  const isCorrect = isSubmitted && validAnswers.some(ans => normalize(ans) === normalize(currentAnswer || ""));
+
+  return (
+    <div className="py-6 px-4 md:px-8 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col transition-colors">
+       
+       <div className="mb-6">
+           <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2 block">Translate this to French:</span>
+           <div className="text-xl md:text-2xl font-serif text-slate-800 dark:text-slate-100 leading-relaxed">
+               {question.content.source_sentence}
+           </div>
+       </div>
+
+       <div className="relative group">
+           <textarea
+               value={currentAnswer || ''}
+               onChange={handleChange}
+               disabled={isSubmitted}
+               placeholder="Type your translation in French..."
+               rows={2}
+               className={`
+                   w-full px-4 py-3 rounded-lg border-2 bg-white dark:bg-slate-900 transition-all font-medium text-lg resize-none
+                   ${isSubmitted 
+                       ? (isCorrect 
+                           ? 'border-green-500 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20' 
+                           : 'border-red-500 text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20') 
+                       : 'border-slate-300 dark:border-slate-600 focus:border-french-blue dark:focus:border-blue-500 text-slate-800 dark:text-slate-200 placeholder-slate-400'
+                   }
+               `}
+           />
+           {!isSubmitted && (
+                <LanguageIcon className="w-5 h-5 text-slate-300 dark:text-slate-600 absolute right-3 top-3 pointer-events-none" />
+           )}
+       </div>
+
+       {isSubmitted && !isCorrect && (
+          <div className="mt-6 animate-fade-in">
+              <span className="text-xs uppercase tracking-wider font-bold text-slate-400 dark:text-slate-500 mb-2 block">Acceptable Answers</span>
+              <div className="flex flex-col gap-2">
+                  <div className="px-4 py-3 bg-green-100 dark:bg-green-900/40 text-green-900 dark:text-green-100 rounded-lg font-bold border border-green-200 dark:border-green-800 flex items-center gap-2">
+                     <span className="bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 text-xs px-2 py-0.5 rounded">Best</span>
+                     {question.content.correct_answer}
+                  </div>
+                  {question.content.accepted_answers?.map((ans, i) => (
+                      <div key={i} className="px-4 py-2 bg-slate-200/50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-sm border border-slate-200 dark:border-slate-700">
+                         {ans}
+                      </div>
+                  ))}
+              </div>
+          </div>
+       )}
     </div>
   );
 };

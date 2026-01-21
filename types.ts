@@ -1,7 +1,7 @@
 
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2';
 export type Difficulty = 'Easy' | 'Medium' | 'Hard';
-export type QuestionType = 'mcq' | 'fill_blank' | 'matching';
+export type QuestionType = 'mcq' | 'fill_blank' | 'matching' | 'sentence_translation';
 
 export interface MatchingPair {
   left: string;
@@ -17,9 +17,13 @@ export interface QuestionContent {
   
   // Matching
   pairs?: MatchingPair[];
+
+  // Sentence Translation
+  source_sentence?: string; // The English sentence to translate
+  accepted_answers?: string[]; // Multiple valid translations (e.g. Tu/Vous variations)
   
   // Common
-  correct_answer?: string; 
+  correct_answer?: string; // Primary answer
 }
 
 export interface Question {
