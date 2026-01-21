@@ -4,18 +4,20 @@ import { StudyGuideContent, CefrLevel } from '../types';
 import { generateStudyGuide } from '../services/geminiService';
 import { getStudyGuide, saveStudyGuide } from '../services/storageService';
 import { InteractiveText } from './InteractiveText';
-import { ArrowLeftIcon, BookOpenIcon, ExclamationTriangleIcon, PlayCircleIcon, LightBulbIcon } from '@heroicons/react/24/solid';
+import { ArrowLeftIcon, BookOpenIcon, ExclamationTriangleIcon, PlayCircleIcon, LightBulbIcon, RectangleStackIcon } from '@heroicons/react/24/solid';
 
 interface StudyGuideViewProps {
   topic: string;
   level: CefrLevel;
+  allowCumulative: boolean;
   onBack: () => void;
-  onStartQuiz: () => void;
+  onStartQuiz: (cumulative: boolean) => void;
 }
 
-export const StudyGuideView: React.FC<StudyGuideViewProps> = ({ topic, level, onBack, onStartQuiz }) => {
+export const StudyGuideView: React.FC<StudyGuideViewProps> = ({ topic, level, allowCumulative, onBack, onStartQuiz }) => {
   const [content, setContent] = useState<StudyGuideContent | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isCumulative, setIsCumulative] = useState(false);
 
   useEffect(() => {
     loadGuide();
@@ -151,15 +153,45 @@ export const StudyGuideView: React.FC<StudyGuideViewProps> = ({ topic, level, on
                 </section>
 
                 {/* Action Area */}
-                <div className="pt-8 flex flex-col items-center">
-                    <p className="text-slate-500 dark:text-slate-400 mb-4 text-center">Ready to test your knowledge on this topic?</p>
-                    <button 
-                        onClick={onStartQuiz}
-                        className="flex items-center gap-2 px-8 py-4 bg-french-dark dark:bg-slate-700 text-white rounded-full font-bold text-lg hover:bg-black dark:hover:bg-slate-600 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1"
-                    >
-                        <PlayCircleIcon className="w-6 h-6" />
-                        Start Practice Quiz
-                    </button>
+                <div className="pt-8 flex flex-col items-center gap-6">
+                    
+                    {allowCumulative && (
+                        <label className="group flex items-center gap-4 cursor-pointer p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 hover:bg-white dark:hover:bg-slate-800 hover:border-french-blue dark:hover:border-blue-500 transition-all w-full max-w-lg">
+                            <div className={`
+                                w-6 h-6 rounded border flex items-center justify-center transition-colors
+                                ${isCumulative 
+                                    ? 'bg-french-blue dark:bg-blue-500 border-french-blue dark:border-blue-500 text-white' 
+                                    : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600'
+                                }
+                            `}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={isCumulative} 
+                                    onChange={(e) => setIsCumulative(e.target.checked)}
+                                    className="hidden"
+                                />
+                                {isCumulative && <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+                            </div>
+                            <div className="flex-grow">
+                                <h4 className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-french-blue dark:group-hover:text-blue-400 transition-colors flex items-center gap-2">
+                                    <RectangleStackIcon className="w-4 h-4" />
+                                    Include All Previous Topics
+                                </h4>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">Generate a comprehensive quiz covering everything up to this point.</p>
+                            </div>
+                        </label>
+                    )}
+
+                    <div className="text-center">
+                        <p className="text-slate-500 dark:text-slate-400 mb-4">Ready to test your knowledge?</p>
+                        <button 
+                            onClick={() => onStartQuiz(isCumulative)}
+                            className="flex items-center gap-2 px-8 py-4 bg-french-dark dark:bg-slate-700 text-white rounded-full font-bold text-lg hover:bg-black dark:hover:bg-slate-600 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1"
+                        >
+                            <PlayCircleIcon className="w-6 h-6" />
+                            {isCumulative ? 'Start Cumulative Quiz' : 'Start Topic Quiz'}
+                        </button>
+                    </div>
                 </div>
 
             </div>

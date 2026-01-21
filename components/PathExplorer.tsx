@@ -41,29 +41,41 @@ export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
     const entry = progress.find(p => p.checkpoint_title === title);
     if (entry?.completed) return { status: 'completed', score: entry.score };
     
-    // Check if previous is completed to unlock current
-    if (index === 0) return { status: 'unlocked', score: 0 };
-    
-    // Logic: Unlocked if previous checkpoint is completed
-    const prevTitle = A2_SYLLABUS[index - 1].title;
-    const prevEntry = progress.find(p => p.checkpoint_title === prevTitle);
-    
-    if (prevEntry?.completed) return { status: 'unlocked', score: 0 };
-    return { status: 'locked', score: 0 };
+    // Previously locked logic removed to enable all topics
+    return { status: 'unlocked', score: 0 };
+  };
+
+  const handleStartQuizFromGuide = (cumulative: boolean) => {
+      if (!selectedTopic) return;
+      
+      let quizTopic = selectedTopic;
+      
+      if (cumulative && activeLevel === 'A2') {
+          const currentIndex = A2_SYLLABUS.findIndex(t => t.title === selectedTopic);
+          if (currentIndex > 0) {
+              const previousTitles = A2_SYLLABUS.slice(0, currentIndex + 1).map(t => t.title);
+              // Construct a prompt-friendly string containing all topics
+              quizTopic = `Cumulative Review of: ${previousTitles.join(', ')}`;
+          }
+      }
+      
+      setSelectedTopic(null); // Close the guide
+      onStartQuiz(quizTopic, activeLevel);
   };
 
   // --- RENDERERS ---
 
   if (selectedTopic) {
+      const currentIndex = A2_SYLLABUS.findIndex(t => t.title === selectedTopic);
+      const allowCumulative = currentIndex > 0;
+
       return (
           <StudyGuideView 
              topic={selectedTopic} 
              level={activeLevel} 
+             allowCumulative={allowCumulative}
              onBack={() => setSelectedTopic(null)}
-             onStartQuiz={() => {
-                 setSelectedTopic(null); // Return to list view logic (but quiz triggers in parent)
-                 onStartQuiz(selectedTopic, activeLevel);
-             }}
+             onStartQuiz={handleStartQuizFromGuide}
           />
       );
   }
@@ -82,6 +94,9 @@ export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
         );
     }
 
+    // Determine the next recommended step (first incomplete item) to highlight
+    const firstIncompleteIndex = A2_SYLLABUS.findIndex(item => !progress.find(p => p.checkpoint_title === item.title)?.completed);
+
     return (
         <div className="max-w-3xl mx-auto py-8 relative">
             {/* Vertical Line */}
@@ -89,8 +104,9 @@ export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
 
             {A2_SYLLABUS.map((checkpoint, index) => {
                 const { status, score } = getCheckpointStatus(checkpoint.title, index);
-                const isLocked = status === 'locked';
+                const isLocked = status === 'locked'; // Always false now
                 const isCompleted = status === 'completed';
+                const isRecommended = index === firstIncompleteIndex;
 
                 return (
                     <div key={index} className={`relative z-10 pl-20 md:pl-24 mb-12 last:mb-0 group ${isLocked ? 'opacity-50 grayscale' : 'opacity-100'}`}>
@@ -105,7 +121,8 @@ export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
                             }
                         `}>
                             {isCompleted && <div className="w-2 h-2 md:w-3 md:h-3 rounded-full bg-green-500" />}
-                            {!isCompleted && !isLocked && <div className="w-2 h-2 md:w-3 md:h-3 rounded-full bg-french-blue dark:bg-blue-500 animate-pulse" />}
+                            {/* Pulse only the recommended next step to avoid visual noise */}
+                            {!isCompleted && !isLocked && isRecommended && <div className="w-2 h-2 md:w-3 md:h-3 rounded-full bg-french-blue dark:bg-blue-500 animate-pulse" />}
                         </div>
 
                         {/* Content Card */}
