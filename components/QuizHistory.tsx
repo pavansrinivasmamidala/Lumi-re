@@ -8,9 +8,10 @@ interface QuizHistoryProps {
   onSelect: (quiz: QuizData) => void;
   onDelete: (id: string) => void;
   onBack: () => void;
+  filterTopic?: string | null;
 }
 
-export const QuizHistory: React.FC<QuizHistoryProps> = ({ quizzes, onSelect, onDelete, onBack }) => {
+export const QuizHistory: React.FC<QuizHistoryProps> = ({ quizzes, onSelect, onDelete, onBack, filterTopic }) => {
   
   const formatDate = (timestamp: number) => {
     return new Intl.DateTimeFormat('en-US', {
@@ -30,9 +31,12 @@ export const QuizHistory: React.FC<QuizHistoryProps> = ({ quizzes, onSelect, onD
           className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-french-blue dark:hover:text-blue-400 transition-colors font-medium"
         >
           <ArrowLeftIcon className="w-5 h-5" />
-          Back to Generator
+          {filterTopic ? 'Back to Guide' : 'Back to Generator'}
         </button>
-        <h2 className="text-2xl font-serif font-bold text-slate-800 dark:text-slate-100">Saved Quizzes</h2>
+        <div className="text-right">
+            <h2 className="text-2xl font-serif font-bold text-slate-800 dark:text-slate-100">Saved Quizzes</h2>
+            {filterTopic && <p className="text-sm text-slate-500 dark:text-slate-400">Filter: {filterTopic}</p>}
+        </div>
       </div>
 
       {quizzes.length === 0 ? (
@@ -40,7 +44,7 @@ export const QuizHistory: React.FC<QuizHistoryProps> = ({ quizzes, onSelect, onD
            <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400 dark:text-slate-500">
               <CalendarDaysIcon className="w-8 h-8" />
            </div>
-           <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300">No quizzes saved yet</h3>
+           <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300">No quizzes saved {filterTopic ? 'for this topic' : 'yet'}</h3>
            <p className="text-slate-500 dark:text-slate-400 mt-2">Generate a quiz to see it here.</p>
         </div>
       ) : (

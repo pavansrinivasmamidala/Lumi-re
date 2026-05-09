@@ -13,11 +13,11 @@ You are the "French Quiz Engine". Generate a structured JSON response.
 **Question Rules:**
 - **Fill-in-the-blank**: Use '_____' (5 underscores). 'correct_answer' must be the exact missing word.
 - **Translation**: 'source_sentence' is English. 'correct_answer' is French. 'accepted_answers' MUST include "Tu" and "Vous" variations if applicable.
-- **Matching**: 'correct_answer' field is ignored by the UI but required by schema; set it to "Match the pairs".
+- **Matching**: 'correct_answer' field is required by schema; set it to "See pairs" (string).
 
 **Reliability**:
-- You MUST provide 'correct_answer' for ALL questions.
 - For 'mcq', 'correct_answer' MUST be one of the 'options'.
+- Ensure JSON is valid.
 `;
 
 const STORY_SYSTEM_INSTRUCTION = `
@@ -84,7 +84,8 @@ const RESPONSE_SCHEMA = {
                     items: { type: Type.STRING }
                   },
                   correct_answer: { 
-                    type: Type.STRING
+                    type: Type.STRING,
+                    description: "The correct answer string. For matching, use a placeholder string."
                   },
                   sentence_with_blank: { 
                     type: Type.STRING
@@ -103,7 +104,7 @@ const RESPONSE_SCHEMA = {
                     },
                   },
                 },
-                required: ["correct_answer"] // Force model to generate this field always
+                // Removed required constraint on correct_answer to avoid schema validation errors on complex types
               },
             },
             required: ["id", "type", "question_text", "content", "explanation"],
@@ -277,20 +278,21 @@ const STUDY_GUIDE_SCHEMA = {
 };
 
 export const checkApiKeyConfigured = (): boolean => {
-  return !!process.env.API_KEY;
+  return !!process.env.GEMINI_API_KEY;
 };
 
 export const generateQuiz = async (settings: QuizSettings): Promise<QuizResponse> => {
-  if (!process.env.API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     throw new Error("API Key is missing. Please add API_KEY to your .env file.");
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   const prompt = `
+    Generate a French quiz for:
     Topic: ${settings.topic}
-    CEFR Level: ${settings.level}
-    Sub-Difficulty: ${settings.difficulty}
+    Level: ${settings.level}
+    Difficulty: ${settings.difficulty}
   `;
 
   try {
@@ -316,11 +318,11 @@ export const generateQuiz = async (settings: QuizSettings): Promise<QuizResponse
 };
 
 export const generateStory = async (settings: QuizSettings): Promise<StoryResponse> => {
-  if (!process.env.API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     throw new Error("API Key is missing. Please add API_KEY to your .env file.");
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   let promptText = `CEFR Level: ${settings.level}\nSub-Difficulty: ${settings.difficulty}`;
   if (settings.topic && settings.topic !== 'Surprise Me') {
@@ -352,8 +354,8 @@ export const generateStory = async (settings: QuizSettings): Promise<StoryRespon
 };
 
 export const generateVocabularyList = async (level: string): Promise<VocabularyListResponse> => {
-  if (!process.env.API_KEY) throw new Error("API Key is missing.");
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   try {
     const response = await ai.models.generateContent({
@@ -378,8 +380,8 @@ export const generateVocabularyList = async (level: string): Promise<VocabularyL
 };
 
 export const generateWordDetails = async (word: string): Promise<WordDetailResponse> => {
-  if (!process.env.API_KEY) throw new Error("API Key is missing.");
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   try {
     const response = await ai.models.generateContent({
@@ -404,8 +406,8 @@ export const generateWordDetails = async (word: string): Promise<WordDetailRespo
 };
 
 export const generateStudyGuide = async (topic: string, level: string): Promise<StudyGuideResponse> => {
-    if (!process.env.API_KEY) throw new Error("API Key is missing.");
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   
     try {
       const response = await ai.models.generateContent({
@@ -457,13 +459,95 @@ export const pcmToAudioBuffer = (base64: string, ctx: AudioContext, sampleRate: 
   return buffer;
 }
 
-export const generateSpeech = async (text: string): Promise<string> => {
-  if (!process.env.API_KEY) throw new Error("API Key is missing.");
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const explainWordInContext = async (word: string, context: string): Promise<any> => {
+  if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+  const prompt = `You are a French dictionary assistant. 
+Explain the French word "${word}" as it is used in the following context:
+"${context}"
+
+Output must be JSON conforming to this schema:
+{
+  "word": "The word (normalized to its base form, e.g., infinitive for verbs)",
+  "partOfSpeech": "noun, verb, adjective, etc.",
+  "literalTranslation": "Literal English translation of this word",
+  "contextualMeaning": "What the word means exactly in this given sentence context",
+  "grammarNotes": "Any brief grammatical context (tense, gender, etc.)"
+}`;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            word: { type: Type.STRING },
+            partOfSpeech: { type: Type.STRING },
+            literalTranslation: { type: Type.STRING },
+            contextualMeaning: { type: Type.STRING },
+            grammarNotes: { type: Type.STRING }
+          },
+          required: ["word", "partOfSpeech", "literalTranslation", "contextualMeaning", "grammarNotes"]
+        }
+      }
+    });
+
+    const output = response.text;
+    if (!output) throw new Error("Failed to generate explanation");
+    return JSON.parse(output);
+  } catch (error) {
+    console.error("Gemini Word Explanation Error:", error);
+    throw error;
+  }
+};
+
+export const translateParagraphs = async (paragraphs: string[]): Promise<string[]> => {
+  if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
+  if (!paragraphs || paragraphs.length === 0) return [];
+
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+  const prompt = `Translate the following French text paragraphs into English.
+Return ONLY a JSON array of strings, where each string is the precise translation of the corresponding paragraph.
+Ensure the array has exactly ${paragraphs.length} elements.
+
+Paragraphs to translate:
+${JSON.stringify(paragraphs)}
+`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        }
+      }
+    });
+
+    const output = response.text;
+    if (!output) throw new Error("Failed to generate translations");
+    return JSON.parse(output);
+  } catch (error) {
+    console.error("Gemini Translation Error:", error);
+    throw error;
+  }
+};
+
+export const generateSpeech = async (text: string): Promise<string> => {
+  if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-tts-preview",
       contents: [{ parts: [{ text: text }] }],
       config: {
         responseModalities: [Modality.AUDIO],

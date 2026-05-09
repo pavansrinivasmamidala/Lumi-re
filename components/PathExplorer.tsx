@@ -1,20 +1,24 @@
 
 import React, { useState, useEffect } from 'react';
 import { CefrLevel, PathCheckpoint, UserProgress } from '../types';
-import { A2_SYLLABUS } from '../data/syllabus';
-import { getPathProgress, markCheckpointComplete } from '../services/storageService';
+import { A2_SYLLABUS, B1_SYLLABUS } from '../data/syllabus';
+import { getPathProgress, markCheckpointComplete, getSyllabusList } from '../services/storageService';
 import { CheckCircleIcon, PlayCircleIcon, LockClosedIcon, BookOpenIcon, ChevronRightIcon } from '@heroicons/react/24/solid';
 import { InteractiveText } from './InteractiveText';
 import { StudyGuideView } from './StudyGuideView';
 
 interface PathExplorerProps {
   onStartQuiz: (topic: string, level: CefrLevel) => void;
+  onViewHistory: (topic: string) => void;
+  initialTopic?: string | null;
+  onTopicOpened?: () => void;
 }
 
 const LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2'];
 
-export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
+export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz, onViewHistory, initialTopic, onTopicOpened }) => {
   const [activeLevel, setActiveLevel] = useState<CefrLevel>('A2');
+  const [syllabus, setSyllabus] = useState<PathCheckpoint[]>([]);
   const [progress, setProgress] = useState<UserProgress[]>([]);
   const [loading, setLoading] = useState(false);
   
@@ -22,16 +26,41 @@ export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
 
   useEffect(() => {
-    loadProgress();
+    loadData();
   }, [activeLevel]);
 
-  const loadProgress = async () => {
+  // Handle auto-open of topic if returning from quiz
+  useEffect(() => {
+      if (initialTopic) {
+          setSelectedTopic(initialTopic);
+          if (onTopicOpened) onTopicOpened();
+      }
+  }, [initialTopic]);
+
+  const loadData = async () => {
     setLoading(true);
     try {
-      const data = await getPathProgress(activeLevel);
-      setProgress(data);
+      const [prog, dbSyllabus] = await Promise.all([
+        getPathProgress(activeLevel),
+        getSyllabusList(activeLevel)
+      ]);
+      
+      setProgress(prog);
+
+      if (dbSyllabus && dbSyllabus.length > 0) {
+        setSyllabus(dbSyllabus);
+      } else {
+        // Fallback to static lists if DB is empty
+        if (activeLevel === 'A2') setSyllabus(A2_SYLLABUS);
+        else if (activeLevel === 'B1') setSyllabus(B1_SYLLABUS);
+        else setSyllabus([]);
+      }
     } catch (e) {
       console.error(e);
+      // Fallback on error
+      if (activeLevel === 'A2') setSyllabus(A2_SYLLABUS);
+      else if (activeLevel === 'B1') setSyllabus(B1_SYLLABUS);
+      else setSyllabus([]);
     } finally {
       setLoading(false);
     }
@@ -50,23 +79,25 @@ export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
       
       let quizTopic = selectedTopic;
       
-      if (cumulative && activeLevel === 'A2') {
-          const currentIndex = A2_SYLLABUS.findIndex(t => t.title === selectedTopic);
+      if (cumulative && syllabus.length > 0) {
+          const currentIndex = syllabus.findIndex(t => t.title === selectedTopic);
           if (currentIndex > 0) {
-              const previousTitles = A2_SYLLABUS.slice(0, currentIndex + 1).map(t => t.title);
+              const previousTitles = syllabus.slice(0, currentIndex + 1).map(t => t.title);
               // Construct a prompt-friendly string containing all topics
               quizTopic = `Cumulative Review of: ${previousTitles.join(', ')}`;
           }
       }
       
-      setSelectedTopic(null); // Close the guide
+      // We don't nullify selectedTopic here immediately if we want to return to it, 
+      // but the quiz view replaces this component anyway.
+      setSelectedTopic(null); 
       onStartQuiz(quizTopic, activeLevel);
   };
 
   // --- RENDERERS ---
 
   if (selectedTopic) {
-      const currentIndex = A2_SYLLABUS.findIndex(t => t.title === selectedTopic);
+      const currentIndex = syllabus.findIndex(t => t.title === selectedTopic);
       const allowCumulative = currentIndex > 0;
 
       return (
@@ -76,33 +107,34 @@ export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
              allowCumulative={allowCumulative}
              onBack={() => setSelectedTopic(null)}
              onStartQuiz={handleStartQuizFromGuide}
+             onViewHistory={onViewHistory}
           />
       );
   }
 
   const renderSyllabus = () => {
-    // Currently only A2 is implemented as per spec
-    if (activeLevel !== 'A2') {
+    // If syllabus is empty (A1 or B2, or DB empty/failed), show Coming Soon
+    if (syllabus.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
                 <LockClosedIcon className="w-16 h-16 text-slate-200 dark:text-slate-800 mb-4" />
                 <h3 className="text-xl font-bold text-slate-400 dark:text-slate-600">Coming Soon</h3>
                 <p className="text-slate-400 dark:text-slate-500 mt-2 max-w-sm">
-                    The {activeLevel} path is currently under construction. Please try A2.
+                    The {activeLevel} path is currently under construction or loading.
                 </p>
             </div>
         );
     }
 
     // Determine the next recommended step (first incomplete item) to highlight
-    const firstIncompleteIndex = A2_SYLLABUS.findIndex(item => !progress.find(p => p.checkpoint_title === item.title)?.completed);
+    const firstIncompleteIndex = syllabus.findIndex(item => !progress.find(p => p.checkpoint_title === item.title)?.completed);
 
     return (
         <div className="max-w-3xl mx-auto py-8 relative">
             {/* Vertical Line */}
             <div className="absolute left-6 md:left-8 top-12 bottom-12 w-0.5 bg-slate-200 dark:bg-slate-800 z-0"></div>
 
-            {A2_SYLLABUS.map((checkpoint, index) => {
+            {syllabus.map((checkpoint, index) => {
                 const { status, score } = getCheckpointStatus(checkpoint.title, index);
                 const isLocked = status === 'locked'; // Always false now
                 const isCompleted = status === 'completed';
@@ -165,7 +197,7 @@ export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
                                 <ul className="space-y-2">
                                     {checkpoint.examples.map((ex, i) => (
                                         <li key={i} className="text-sm text-slate-700 dark:text-slate-300 italic">
-                                            • <InteractiveText text={ex} glossary={[]} level="A2" />
+                                            • <InteractiveText text={ex} glossary={[]} level={activeLevel} />
                                         </li>
                                     ))}
                                 </ul>
@@ -202,7 +234,7 @@ export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
                                 ? 'bg-french-blue text-white shadow-md' 
                                 : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
                             }
-                            ${lvl !== 'A2' ? 'opacity-60' : ''}
+                            ${lvl !== 'A2' && lvl !== 'B1' ? 'opacity-60' : ''}
                         `}
                     >
                         {lvl}
@@ -211,8 +243,14 @@ export const PathExplorer: React.FC<PathExplorerProps> = ({ onStartQuiz }) => {
             </div>
         </div>
         
-        {/* Syllabus List */}
-        {renderSyllabus()}
+        {loading && (
+             <div className="text-center py-20 animate-pulse">
+                <div className="inline-block w-8 h-8 border-4 border-slate-200 dark:border-slate-800 border-t-french-blue rounded-full animate-spin mb-4"></div>
+                <p className="text-slate-400 dark:text-slate-500">Updating Path...</p>
+             </div>
+        )}
+
+        {!loading && renderSyllabus()}
     </div>
   );
 };

@@ -2,9 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { StudyGuideContent, CefrLevel } from '../types';
 import { generateStudyGuide } from '../services/geminiService';
-import { getStudyGuide, saveStudyGuide } from '../services/storageService';
+import { getStudyGuide, saveStudyGuide, getSavedQuizzesByTopic } from '../services/storageService';
 import { InteractiveText } from './InteractiveText';
-import { ArrowLeftIcon, BookOpenIcon, ExclamationTriangleIcon, PlayCircleIcon, LightBulbIcon, RectangleStackIcon } from '@heroicons/react/24/solid';
+import { ArrowLeftIcon, BookOpenIcon, ExclamationTriangleIcon, PlayCircleIcon, LightBulbIcon, RectangleStackIcon, ClockIcon } from '@heroicons/react/24/solid';
 
 interface StudyGuideViewProps {
   topic: string;
@@ -12,15 +12,18 @@ interface StudyGuideViewProps {
   allowCumulative: boolean;
   onBack: () => void;
   onStartQuiz: (cumulative: boolean) => void;
+  onViewHistory: (topic: string) => void;
 }
 
-export const StudyGuideView: React.FC<StudyGuideViewProps> = ({ topic, level, allowCumulative, onBack, onStartQuiz }) => {
+export const StudyGuideView: React.FC<StudyGuideViewProps> = ({ topic, level, allowCumulative, onBack, onStartQuiz, onViewHistory }) => {
   const [content, setContent] = useState<StudyGuideContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [isCumulative, setIsCumulative] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
 
   useEffect(() => {
     loadGuide();
+    checkHistory();
   }, [topic, level]);
 
   const loadGuide = async () => {
@@ -49,6 +52,13 @@ export const StudyGuideView: React.FC<StudyGuideViewProps> = ({ topic, level, al
     }
   };
 
+  const checkHistory = async () => {
+    try {
+        const history = await getSavedQuizzesByTopic(topic);
+        setSavedCount(history.length);
+    } catch(e) { console.error(e); }
+  };
+
   if (loading) {
      return (
         <div className="w-full max-w-3xl mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-12 flex flex-col items-center justify-center min-h-[500px] transition-colors">
@@ -66,7 +76,7 @@ export const StudyGuideView: React.FC<StudyGuideViewProps> = ({ topic, level, al
      );
   }
 
-  if (!content) return <div>Error loading content.</div>;
+  if (!content) return <div className="text-center p-8 text-red-500">Error loading content. Please try again.</div>;
 
   return (
     <div className="w-full max-w-4xl mx-auto animate-fade-in pb-12">
@@ -88,6 +98,16 @@ export const StudyGuideView: React.FC<StudyGuideViewProps> = ({ topic, level, al
                     {level} Study Guide
                  </span>
                  <h1 className="text-4xl font-serif font-bold relative z-10">{topic}</h1>
+                 
+                 {savedCount > 0 && (
+                     <button 
+                        onClick={() => onViewHistory(topic)}
+                        className="mt-4 flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors border border-white/20"
+                     >
+                        <ClockIcon className="w-4 h-4" />
+                        View {savedCount} Past Quiz{savedCount !== 1 ? 'zes' : ''}
+                     </button>
+                 )}
             </div>
 
             <div className="p-8 md:p-12 space-y-10">
@@ -111,12 +131,15 @@ export const StudyGuideView: React.FC<StudyGuideViewProps> = ({ topic, level, al
                 <section>
                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 uppercase tracking-wide">Key Rules</h3>
                     <ul className="space-y-3">
-                        {content.key_rules.map((rule, idx) => (
+                        {(content.key_rules || []).map((rule, idx) => (
                             <li key={idx} className="flex items-start gap-3 text-slate-700 dark:text-slate-300">
                                 <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-french-blue dark:bg-blue-500 flex-shrink-0"></span>
                                 <span className="leading-relaxed">{rule}</span>
                             </li>
                         ))}
+                        {(!content.key_rules || content.key_rules.length === 0) && (
+                            <li className="text-slate-500 italic">No specific rules available.</li>
+                        )}
                     </ul>
                 </section>
 
@@ -141,7 +164,7 @@ export const StudyGuideView: React.FC<StudyGuideViewProps> = ({ topic, level, al
                 <section>
                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6 uppercase tracking-wide">Examples in Context</h3>
                     <div className="grid gap-4">
-                        {content.examples.map((ex, idx) => (
+                        {(content.examples || []).map((ex, idx) => (
                             <div key={idx} className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
                                 <div className="text-lg font-medium text-french-blue dark:text-blue-300 mb-1 font-serif">
                                     <InteractiveText text={ex.french} glossary={[]} level={level} />

@@ -293,3 +293,150 @@ export const A2_SYLLABUS: PathCheckpoint[] = [
     ]
   }
 ];
+
+export const B1_SYLLABUS: PathCheckpoint[] = [
+    {
+        "title": "Le Subjonctif Présent (Necessity & Emotion)",
+        "description": "Introduction to the subjunctive mood for expressing necessity, emotion, and desire.",
+        "examples": [
+            "Il faut que tu partes.",
+            "Je suis content que tu sois là.",
+            "Je veux qu'il vienne."
+        ]
+    },
+    {
+        "title": "Le Subjonctif (Doubt & Uncertainty)",
+        "description": "Use the subjunctive with verbs of doubt, possibility, and negative opinion.",
+        "examples": [
+            "Je doute qu'il pleuve.",
+            "Il est possible qu'elle sache la réponse.",
+            "Je ne pense pas qu'il soit prêt."
+        ]
+    },
+    {
+        "title": "Le Conditionnel Présent (Politeness & Wishes)",
+        "description": "Express politeness, wishes, and advice using the conditional present.",
+        "examples": [
+            "Je voudrais un café, s'il vous plaît.",
+            "Tu devrais étudier plus.",
+            "J'aimerais visiter Paris."
+        ]
+    },
+    {
+        "title": "Le Conditionnel (Hypothesis - Si + Imparfait)",
+        "description": "Form hypothetical sentences using 'Si' + Imparfait followed by Conditional.",
+        "examples": [
+            "Si j'étais riche, j'achèterais un bateau.",
+            "Si tu avais le temps, tu viendrais avec nous.",
+            "S'il faisait beau, nous irions à la plage."
+        ]
+    },
+    {
+        "title": "Le Plus-que-parfait",
+        "description": "Describe an action that happened before another past action.",
+        "examples": [
+            "Quand je suis arrivé, il avait déjà mangé.",
+            "Elle était sortie car elle avait fini son travail.",
+            "J'avais perdu mes clés avant de partir."
+        ]
+    },
+    {
+        "title": "Relative Pronouns (Ce qui, Ce que, Dont)",
+        "description": "Master complex relative pronouns including 'dont' (replacing 'de').",
+        "examples": [
+            "C'est le livre dont je t'ai parlé.",
+            "Je ne sais pas ce qu'il veut.",
+            "Ce qui est important, c'est la santé."
+        ]
+    },
+    {
+        "title": "Demonstrative Pronouns (Celui, Celle, Ceux, Celles)",
+        "description": "Replace specific nouns with demonstrative pronouns followed by relative clauses or prepositions.",
+        "examples": [
+            "Quelle robe préfères-tu ? Celle rouge ou celle bleue ?",
+            "Ceux qui travaillent dur réussiront.",
+            "C'est celui de mon frère."
+        ]
+    },
+    {
+        "title": "Possessive Pronouns (Le mien, Le tien, Le sien...)",
+        "description": "Replace nouns indicating possession (mine, yours, his/hers).",
+        "examples": [
+            "C'est ma voiture ? Non, c'est la sienne.",
+            "J'ai mes clés, tu as les tiennes ?",
+            "Notre maison est grande, la leur est petite."
+        ]
+    },
+    {
+        "title": "La Voix Passive",
+        "description": "Transform active sentences into passive voice using 'être' + past participle.",
+        "examples": [
+            "La souris est mangée par le chat.",
+            "Ce livre a été écrit par Victor Hugo.",
+            "Les décisions seront prises demain."
+        ]
+    },
+    {
+        "title": "Discours Indirect (Present)",
+        "description": "Report what someone says without quoting them directly (Present tense).",
+        "examples": [
+            "Il dit qu'il est fatigué.",
+            "Elle demande si tu viens.",
+            "Ils disent qu'ils ne peuvent pas."
+        ]
+    },
+    {
+        "title": "Causative Faire (Faire faire)",
+        "description": "Express having something done by someone else using 'Faire' + Infinitive.",
+        "examples": [
+            "Je fais réparer ma voiture.",
+            "Il fait construire une maison.",
+            "Elle me fait rire."
+        ]
+    },
+    {
+        "title": "Gérondif vs Participe Présent",
+        "description": "Distinguish between the Gerund (en + ant) and the Present Participle (used as adjective or verb).",
+        "examples": [
+            "En sortant, j'ai vu Paul. (Gerund)",
+            "Les élèves voulant réussir étudient. (Participle)",
+            "C'est une histoire amusante. (Adjective)"
+        ]
+    },
+    {
+        "title": "Expressions of Cause & Consequence",
+        "description": "Connect ideas using 'car', 'comme', 'puisque', 'donc', 'alors'.",
+        "examples": [
+            "Comme il pleut, je ne sors pas.",
+            "Il est malade, donc il est absent.",
+            "Puisque tu es là, aidons-nous."
+        ]
+    },
+    {
+        "title": "Double Pronouns (Order & Position)",
+        "description": "Use two object pronouns in the same sentence correctly.",
+        "examples": [
+            "Je le lui donne.",
+            "Il me les a montrés.",
+            "Ne me le dis pas !"
+        ]
+    },
+    {
+        "title": "Technology & Media Vocabulary",
+        "description": "Discuss modern technology, internet, and news media.",
+        "examples": [
+            "Télécharger un fichier.",
+            "Les réseaux sociaux.",
+            "Envoyer un courriel."
+        ]
+    },
+    {
+        "title": "Debating & Expressing Opinions",
+        "description": "Structures to agree, disagree, and express personal viewpoints.",
+        "examples": [
+            "À mon avis...",
+            "Je ne suis pas d'accord.",
+            "Il me semble que..."
+        ]
+    }
+];

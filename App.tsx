@@ -4,7 +4,7 @@ import { generateQuiz, generateStory, checkApiKeyConfigured } from './services/g
 import { 
     saveQuizToHistory, getSavedQuizzes, deleteSavedQuiz, 
     saveStoryToHistory, getSavedStories, deleteSavedStory,
-    checkSupabaseConnection, markCheckpointComplete
+    checkSupabaseConnection, markCheckpointComplete, getSavedQuizzesByTopic
 } from './services/storageService';
 import { QuizSettings, QuizData, StoryData, SavedQuiz, SavedStory, CefrLevel } from './types';
 import { QuizForm } from './components/QuizForm';
@@ -14,9 +14,11 @@ import { VocabularyExplorer } from './components/VocabularyExplorer';
 import { PathExplorer } from './components/PathExplorer';
 import { QuizHistory } from './components/QuizHistory';
 import { StoryHistory } from './components/StoryHistory';
-import { BookOpenIcon, AcademicCapIcon, RectangleStackIcon, SunIcon, MoonIcon, ListBulletIcon, MapIcon } from '@heroicons/react/24/outline';
+import { BookOpenIcon, AcademicCapIcon, RectangleStackIcon, SunIcon, MoonIcon, ListBulletIcon, MapIcon, MicrophoneIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { ConversationInterface } from './components/ConversationInterface';
+import { ReaderInterface } from './components/ReaderInterface';
 
-type Tab = 'quiz' | 'stories' | 'vocabulary' | 'path';
+type Tab = 'quiz' | 'stories' | 'vocabulary' | 'path' | 'talk' | 'reader';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('quiz');
@@ -49,6 +51,8 @@ const App: React.FC = () => {
   const [activePathContext, setActivePathContext] = useState<{ topic: string, level: string } | null>(null);
   const [savedQuizzes, setSavedQuizzes] = useState<SavedQuiz[]>([]);
   const [showQuizHistory, setShowQuizHistory] = useState(false);
+  const [historyTopicFilter, setHistoryTopicFilter] = useState<string | null>(null);
+  const [pendingReturnTopic, setPendingReturnTopic] = useState<string | null>(null);
 
   // --- STORY STATE ---
   const [storyData, setStoryData] = useState<StoryData | null>(null);
@@ -95,7 +99,11 @@ const App: React.FC = () => {
           try {
              // Only save to history if it's a general quiz, or optionally save path quizzes too
              const saved = await saveQuizToHistory(response.quiz);
-             setSavedQuizzes(prev => [saved, ...prev]);
+             // If we are currently viewing the "All" list, update it. 
+             // If viewing filtered list, we don't necessarily update it unless it matches.
+             if (!historyTopicFilter) {
+                 setSavedQuizzes(prev => [saved, ...prev]);
+             }
           } catch (e) { console.error("DB Save failed", e); }
       }
     } catch (err: any) {
@@ -107,7 +115,7 @@ const App: React.FC = () => {
 
   const handleSelectQuiz = (quiz: QuizData) => {
     setQuizData(quiz);
-    setActiveQuizSource('generator');
+    setActiveQuizSource('generator'); // Treat re-played quizzes as standard for now (no progress tracking)
     setShowQuizHistory(false);
   };
 
@@ -120,10 +128,12 @@ const App: React.FC = () => {
 
   const closeQuiz = (score?: number, total?: number) => {
       // If closing a path quiz with a passing score (e.g., > 60%), mark progress
-      if (activeQuizSource === 'path' && activePathContext && score !== undefined && total !== undefined) {
-         if (score >= total * 0.6) { // 60% Passing grade
+      if (activeQuizSource === 'path' && activePathContext) {
+         if (score !== undefined && total !== undefined && score >= total * 0.6) { 
              markCheckpointComplete(activePathContext.level, activePathContext.topic, score);
          }
+         // Set pending topic to re-open the study guide
+         setPendingReturnTopic(activePathContext.topic);
       }
       
       setQuizData(null);
@@ -177,6 +187,21 @@ const App: React.FC = () => {
       }, 'path');
   };
 
+  const handleViewTopicHistory = async (topic: string) => {
+      setLoading(true);
+      try {
+          const quizzes = await getSavedQuizzesByTopic(topic);
+          setSavedQuizzes(quizzes);
+          setHistoryTopicFilter(topic);
+          setActiveTab('quiz'); // Switch to quiz tab context to show history
+          setShowQuizHistory(true);
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setLoading(false);
+      }
+  };
+
   // --- RENDER HELPERS ---
   
   const renderQuizTab = () => {
@@ -189,7 +214,14 @@ const App: React.FC = () => {
                 quizzes={savedQuizzes} 
                 onSelect={handleSelectQuiz} 
                 onDelete={handleDeleteQuiz}
-                onBack={() => setShowQuizHistory(false)}
+                onBack={() => {
+                    setShowQuizHistory(false);
+                    setHistoryTopicFilter(null);
+                    // Reload all quizzes to reset view
+                    getSavedQuizzes().then(setSavedQuizzes);
+                    if (historyTopicFilter) setActiveTab('path'); // Return to path if we came from there
+                }}
+                filterTopic={historyTopicFilter}
             />
           );
       }
@@ -202,11 +234,15 @@ const App: React.FC = () => {
                   </p>
                   {savedQuizzes.length > 0 && (
                       <button 
-                        onClick={() => setShowQuizHistory(true)}
+                        onClick={() => {
+                            setHistoryTopicFilter(null);
+                            getSavedQuizzes().then(setSavedQuizzes);
+                            setShowQuizHistory(true);
+                        }}
                         className="inline-flex items-center gap-2 px-5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-slate-600 dark:text-slate-300 text-sm font-medium hover:text-french-blue dark:hover:text-blue-400 hover:border-french-blue dark:hover:border-blue-400 transition-colors shadow-sm"
                       >
                           <RectangleStackIcon className="w-4 h-4" />
-                          View Saved Quizzes ({savedQuizzes.length})
+                          View All Saved Quizzes
                       </button>
                   )}
               </div>
@@ -267,7 +303,12 @@ const App: React.FC = () => {
                       Follow a structured syllabus to master French step-by-step.
                   </p>
              </div>
-             <PathExplorer onStartQuiz={handleStartPathQuiz} />
+             <PathExplorer 
+                onStartQuiz={handleStartPathQuiz} 
+                onViewHistory={handleViewTopicHistory}
+                initialTopic={pendingReturnTopic}
+                onTopicOpened={() => setPendingReturnTopic(null)}
+             />
         </div>
       );
   };
@@ -316,6 +357,20 @@ const App: React.FC = () => {
                     <ListBulletIcon className="w-4 h-4" />
                     <span className="hidden sm:inline">Vocabulary</span>
                 </button>
+                <button 
+                  onClick={() => setActiveTab('talk')}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${activeTab === 'talk' ? 'bg-white dark:bg-slate-700 shadow-sm text-french-blue dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                >
+                    <MicrophoneIcon className="w-4 h-4" />
+                    <span className="hidden sm:inline">Talk</span>
+                </button>
+                <button 
+                  onClick={() => setActiveTab('reader')}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${activeTab === 'reader' ? 'bg-white dark:bg-slate-700 shadow-sm text-french-blue dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                >
+                    <DocumentTextIcon className="w-4 h-4" />
+                    <span className="hidden sm:inline">Reader</span>
+                </button>
             </nav>
 
             {/* Theme Toggle */}
@@ -339,7 +394,7 @@ const App: React.FC = () => {
             </div>
         )}
 
-        {loading && activeTab === 'path' && (
+        {loading && activeTab === 'path' && !historyTopicFilter && (
              <div className="w-full max-w-2xl mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-12 flex flex-col items-center justify-center min-h-[400px] transition-colors">
                 <div className="relative mb-8">
                   <div className="w-20 h-20 border-4 border-slate-100 dark:border-slate-800 rounded-full"></div>
@@ -360,6 +415,16 @@ const App: React.FC = () => {
         {activeTab === 'vocabulary' && (
             <div className="animate-fade-in-up w-full">
                 <VocabularyExplorer />
+            </div>
+        )}
+        {activeTab === 'talk' && (
+            <div className="animate-fade-in-up w-full max-w-4xl mx-auto">
+                <ConversationInterface onGoBack={() => setActiveTab('quiz')} />
+            </div>
+        )}
+        {activeTab === 'reader' && (
+            <div className="animate-fade-in-up w-full">
+                <ReaderInterface onGoBack={() => setActiveTab('quiz')} />
             </div>
         )}
 

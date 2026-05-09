@@ -1,6 +1,6 @@
 
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { QuizData, StoryData, SavedQuiz, SavedStory, VocabularyEntry, CefrLevel, WordDetail, UserProgress, StudyGuideDB, StudyGuideContent } from '../types';
+import { QuizData, StoryData, SavedQuiz, SavedStory, VocabularyEntry, CefrLevel, WordDetail, UserProgress, StudyGuideDB, StudyGuideContent, PathCheckpoint } from '../types';
 
 const LOCAL_QUIZ_KEY = 'lumiere_local_quizzes';
 const LOCAL_STORY_KEY = 'lumiere_local_stories';
@@ -47,7 +47,13 @@ export const saveQuizToHistory = async (quiz: QuizData): Promise<SavedQuiz> => {
   const timestamp = Date.now();
   if (isSupabaseConfigured()) {
     try {
-        const { data, error } = await supabase.from('quizzes').insert([{ user_id: userId, data: quiz }]).select().single();
+        // We now save topic and level as separate columns for easier querying
+        const { data, error } = await supabase.from('quizzes').insert([{ 
+            user_id: userId, 
+            data: quiz,
+            topic: quiz.topic,
+            level: quiz.cefr_level
+        }]).select().single();
         if (!error) return { id: data.id, created_at: new Date(data.created_at).getTime(), data: data.data };
     } catch (err) {}
   }
@@ -66,6 +72,23 @@ export const getSavedQuizzes = async (): Promise<SavedQuiz[]> => {
   }
   return getLocalItems<SavedQuiz>(LOCAL_QUIZ_KEY);
 };
+
+export const getSavedQuizzesByTopic = async (topic: string): Promise<SavedQuiz[]> => {
+    if (isSupabaseConfigured()) {
+      try {
+          // Optimized query using the new column
+          const { data, error } = await supabase.from('quizzes')
+            .select('*')
+            .eq('topic', topic)
+            .order('created_at', { ascending: false });
+            
+          if (!error) return data.map((row: any) => ({ id: row.id, created_at: new Date(row.created_at).getTime(), data: row.data }));
+      } catch (err) {}
+    }
+    // Local fallback filter
+    const allLocal = getLocalItems<SavedQuiz>(LOCAL_QUIZ_KEY);
+    return allLocal.filter(q => q.data.topic === topic).sort((a,b) => b.created_at - a.created_at);
+  };
 
 export const deleteSavedQuiz = async (id: string): Promise<void> => {
   if (isSupabaseConfigured()) {
@@ -252,7 +275,7 @@ export const markCheckpointComplete = async (level: string, title: string, score
   saveLocalItems(LOCAL_PROGRESS_KEY, allProgress);
 };
 
-// --- STUDY GUIDES ---
+// --- STUDY GUIDES & SYLLABUS ---
 
 export const getStudyGuide = async (topic: string, level: string): Promise<StudyGuideContent | null> => {
   if (isSupabaseConfigured()) {
@@ -293,4 +316,38 @@ export const saveStudyGuide = async (topic: string, level: string, content: Stud
    else guides.push(newEntry);
    
    saveLocalItems(LOCAL_GUIDES_KEY, guides);
+};
+
+export const getSyllabusList = async (level: string): Promise<PathCheckpoint[]> => {
+  if (isSupabaseConfigured()) {
+    try {
+      const { data, error } = await supabase
+        .from('study_guides')
+        .select('topic_id, content')
+        .eq('level_id', level)
+        .order('created_at', { ascending: true }); // Assumption: inserted in desired order
+
+      if (!error && data && data.length > 0) {
+        return data.map((row: any) => {
+            const content = row.content as StudyGuideContent;
+            // Truncate description for the card view
+            const description = content.concept_explanation || "Study guide available.";
+            const shortDesc = description.length > 120 ? description.substring(0, 120) + "..." : description;
+            
+            const examples = Array.isArray(content.examples) 
+                ? content.examples.slice(0, 3).map((ex: any) => typeof ex === 'string' ? ex : ex.french) 
+                : [];
+
+            return {
+                title: row.topic_id,
+                description: shortDesc,
+                examples: examples
+            };
+        });
+      }
+    } catch (e) {
+      console.warn("Failed to fetch syllabus from DB", e);
+    }
+  }
+  return [];
 };
