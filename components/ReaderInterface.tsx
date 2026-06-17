@@ -1,20 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import localforage from 'localforage';
 import { DocumentTextIcon, ChevronLeftIcon, ChevronRightIcon, XMarkIcon, ArrowLeftIcon, TrashIcon, SpeakerWaveIcon } from '@heroicons/react/24/outline';
 import { explainWordInContext, translateParagraphs, generateSpeech, pcmToAudioBuffer } from '../services/geminiService';
+import { saveDocumentToHistory, getSavedDocuments, deleteSavedDocument, saveDocumentTranslations } from '../services/storageService';
+import { SavedDocument } from '../types';
 
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
-
-interface SavedDocument {
-    id: string;
-    name: string;
-    pages: string[][];
-    timestamp: number;
-    currentPage?: number;
-}
+// Configure PDF.js worker securely using CDN. Avoids Vite worker bundling issues on iOS/Mobile config
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 interface ReaderInterfaceProps {
     onGoBack?: () => void;
@@ -100,19 +93,42 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
     };
 
     const loadSavedDocuments = async () => {
-        const docs: SavedDocument[] = [];
-        await localforage.iterate((value: SavedDocument, key: string) => {
-            if (key.startsWith('doc_')) {
-                docs.push(value);
-            }
-        });
-        docs.sort((a, b) => b.timestamp - a.timestamp);
-        setDocuments(docs);
+        try {
+            const dbDocs = await getSavedDocuments();
+            // Load local progress which is stored in localforage via key 'doc_progress_<id>'
+            const docsWithProgress = await Promise.all(dbDocs.map(async (doc) => {
+                const progress = await localforage.getItem<number>(`doc_progress_${doc.id}`);
+                return { ...doc, currentPage: progress || 0 };
+            }));
+            
+            // Also get legacy docs from localforage to merge
+            const localLegacy: SavedDocument[] = [];
+            await localforage.iterate((value: any, key: string) => {
+                if (key.startsWith('doc_') && !key.startsWith('doc_progress_')) {
+                    localLegacy.push(value);
+                }
+            });
+            
+            // Merge deduplicate by id
+            const allDocsMap = new Map();
+            docsWithProgress.forEach(d => allDocsMap.set(d.id, d));
+            localLegacy.forEach(d => {
+                if (!allDocsMap.has(d.id)) allDocsMap.set(d.id, d);
+            });
+            
+            const docs = Array.from(allDocsMap.values());
+            docs.sort((a: SavedDocument, b: SavedDocument) => b.timestamp - a.timestamp);
+            setDocuments(docs);
+        } catch (error) {
+            console.error("Failed to load documents:", error);
+        }
     };
 
-    const deleteDocument = async (id: string, e: React.MouseEvent) => {
+    const deleteDocumentHandler = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        await localforage.removeItem(id);
+        await deleteSavedDocument(id);
+        await localforage.removeItem(`doc_progress_${id}`);
+        await localforage.removeItem(id); // Clean up legacy
         loadSavedDocuments();
     };
 
@@ -121,32 +137,38 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
         setFileName(doc.name);
         setCurrentPage(doc.currentPage || 0);
         setCurrentDocId(doc.id);
-        setPageTranslations({});
+        setPageTranslations(doc.translations || {});
         setSelectedWord(null);
         setDefinitionData(null);
         setView('reader');
     };
 
-    // Save current page progress
+    // Save current page progress locally
     useEffect(() => {
         if (currentDocId && pages.length > 0) {
-            localforage.getItem<SavedDocument>(currentDocId).then(doc => {
-                if (doc) {
-                    doc.currentPage = currentPage;
-                    localforage.setItem(currentDocId, doc);
-                }
-            });
+            localforage.setItem(`doc_progress_${currentDocId}`, currentPage);
         }
     }, [currentPage, currentDocId, pages]);
 
     useEffect(() => {
-        if (pages.length === 0) return;
+        if (pages.length === 0 || !currentDocId) return;
         const fetchTranslation = async () => {
             if (pageTranslations[currentPage] || isTranslating) return;
             setIsTranslating(true);
             try {
                 const translated = await translateParagraphs(pages[currentPage]);
-                setPageTranslations(prev => ({ ...prev, [currentPage]: translated }));
+                setPageTranslations(prev => {
+                    const newTranslations = { ...prev, [currentPage]: translated };
+                    saveDocumentTranslations(currentDocId, newTranslations);
+                    return newTranslations;
+                });
+                
+                setDocuments(prevList => prevList.map(d => {
+                    if (d.id === currentDocId) {
+                        return { ...d, translations: { ...(d.translations || {}), [currentPage]: translated } };
+                    }
+                    return d;
+                }));
             } catch (e) {
                 console.error("Failed to translate page", e);
             } finally {
@@ -154,7 +176,7 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
             }
         };
         fetchTranslation();
-    }, [currentPage, pages]);
+    }, [currentPage, pages, currentDocId]);
 
     const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -171,7 +193,13 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
         try {
             let extractedPages: string[][] = [];
             if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-                const arrayBuffer = await file.arrayBuffer();
+                const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target?.result as ArrayBuffer);
+                    reader.onerror = (e) => reject(() => new Error("File read error"));
+                    reader.readAsArrayBuffer(file);
+                });
+                
                 const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
                 let fullText = '';
                 for (let i = 1; i <= pdf.numPages; i++) {
@@ -181,18 +209,25 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
                     let pageText = '';
                     let lastY: number | null = null;
                     for (const item of textContent.items as any[]) {
-                        const fontSize = item.transform[0] || 12;
-                        const currY = item.transform[5];
-                        if (lastY !== null) {
+                        if (!('str' in item)) continue;
+                        
+                        const fontSize = item.transform ? item.transform[0] : 12;
+                        const currY = item.transform ? item.transform[5] : null;
+
+                        if (lastY !== null && currY !== null) {
                             const yDiff = Math.abs(lastY - currY);
-                            if (yDiff > fontSize * 1.5) {
+                            // Standard line height is ~1.2x to 1.6x. We shouldn't split paragraphs on every line!
+                            // Only split if gap is large (> 2.0x) OR (gap > 1.4x AND line ends with a sentence terminator)
+                            if (yDiff > fontSize * 2.0) {
+                                pageText += '\n\n';
+                            } else if (yDiff > fontSize * 1.4 && /[.!?»"']$/.test(pageText.trim())) {
                                 pageText += '\n\n';
                             } else if (yDiff > fontSize * 0.4) {
                                 pageText += '\n';
                             }
                         }
                         pageText += item.str;
-                        lastY = currY;
+                        if (currY !== null) lastY = currY;
                     }
                     
                     const trimmed = pageText.trim();
@@ -216,9 +251,9 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
                 currentPage: 0
             };
 
-            await localforage.setItem(newDoc.id, newDoc);
+            await saveDocumentToHistory(newDoc);
             await loadSavedDocuments();
-            openDocument(newDoc);
+            openDocument({ ...newDoc, currentPage: 0 });
         } catch (error) {
             console.error("Failed to parse file", error);
             alert("Failed to read file.");
@@ -228,37 +263,22 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
     };
 
     const paginateText = (text: string): string[][] => {
-        const rawParagraphs = text.split(/\n\s*\n/).filter(Boolean);
+        const cleanedText = text.replace(/-\n/g, '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!cleanedText) return [["No text found."]];
         
-        const paragraphs: string[] = [];
-        for (const p of rawParagraphs) {
-            const cleaned = p.replace(/-\n/g, '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-            if (!cleaned) continue;
-            
-            if (cleaned.length > 1200) {
-                // Fallback: split huge chunks into sentences to prevent massive UI blocks
-                const sentences = cleaned.match(/(?:[^.!?]+[.!?]+|[^.!?]+$)/g) || [cleaned];
-                let tempPara = '';
-                for (const sentence of sentences) {
-                    if (tempPara.length + sentence.length > 800 && tempPara.length > 0) {
-                        paragraphs.push(tempPara.trim());
-                        tempPara = sentence + ' ';
-                    } else {
-                        tempPara += sentence + ' ';
-                    }
-                }
-                if (tempPara.trim()) paragraphs.push(tempPara.trim());
-            } else {
-                paragraphs.push(cleaned);
-            }
-        }
+        // Break firmly on full stops (sentences ending in . ! ?)
+        const sentencesMatch = cleanedText.match(/(?:[^.!?]+[.!?]+|[^.!?]+$)/g) || [cleanedText];
+        const paragraphs = sentencesMatch.map(s => s.trim()).filter(Boolean);
 
         const newPages: string[][] = [];
         let currentParagraphs: string[] = [];
         let currentLength = 0;
+        
+        // Smaller chunks for better mobile readability and paragraph-by-paragraph translation syncing
+        const MAX_CHARS_PER_PAGE = 800; 
 
         for (const p of paragraphs) {
-            if (currentLength + p.length > 2000 && currentParagraphs.length > 0) {
+            if (currentLength + p.length > MAX_CHARS_PER_PAGE && currentParagraphs.length > 0) {
                 newPages.push(currentParagraphs);
                 currentParagraphs = [p];
                 currentLength = p.length;
@@ -340,7 +360,7 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
                                         <div className="flex items-start justify-between mb-2">
                                             <DocumentTextIcon className="w-8 h-8 text-french-blue/60 dark:text-blue-400/60" />
                                             <button 
-                                                onClick={(e) => deleteDocument(doc.id, e)}
+                                                onClick={(e) => deleteDocumentHandler(doc.id, e)}
                                                 className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all rounded-md hover:bg-red-50 dark:hover:bg-red-900/30"
                                             >
                                                 <TrashIcon className="w-5 h-5" />
@@ -367,8 +387,9 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
     return (
         <div className="flex flex-col max-w-7xl mx-auto h-[85vh] lg:h-[80vh] bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden animate-fade-in-up relative">
             
-            {/* Reading Area */}
-            <div className="flex-1 flex flex-col h-full">
+            <div className="flex flex-1 overflow-hidden relative">
+                {/* Reading Area */}
+                <div className="flex-1 flex flex-col h-full min-w-0">
                 
                 {/* Header */}
                 <div className="flex items-center justify-between p-3 md:p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
@@ -415,7 +436,7 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
                             return (
                                 <div key={pIdx} className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8 items-start mb-10 pb-10 border-b border-slate-100 dark:border-slate-800/50 last:border-0 last:pb-0 relative group">
                                     {/* French Side */}
-                                    <div className="font-serif text-[1.1rem] md:text-xl leading-relaxed md:leading-loose text-slate-800 dark:text-slate-100 relative pl-10 md:pl-12">
+                                    <div className="font-serif text-lg md:text-xl leading-relaxed md:leading-loose text-slate-800 dark:text-slate-100 relative pl-10 md:pl-12">
                                         <button 
                                             onClick={() => playLineAudio(paragraph, pIdx)}
                                             className={`absolute left-0 top-1.5 md:top-2 p-1.5 md:p-2 rounded-full transition-all ${playingParagraphIdx === pIdx ? 'bg-french-blue text-white shadow-md animate-pulse' : 'text-slate-400 hover:bg-blue-50 dark:hover:bg-slate-800 hover:text-french-blue dark:hover:text-blue-400 opacity-50 group-hover:opacity-100'}`}
@@ -456,7 +477,7 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
                                         })}
                                     </div>
                                     {/* English Side */}
-                                    <div className="font-serif text-sm md:text-lg leading-relaxed md:leading-loose text-slate-500 dark:text-slate-400 lg:border-l border-slate-200 dark:border-slate-700 lg:pl-8 pt-2 lg:pt-0">
+                                    <div className="font-serif text-lg md:text-xl leading-relaxed md:leading-loose text-slate-500 dark:text-slate-400 lg:border-l border-slate-200 dark:border-slate-700 lg:pl-8 pt-2 lg:pt-0">
                                         {isLoadingTranslation ? (
                                             <div className="animate-pulse space-y-3 mt-2">
                                                 <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-full"></div>
@@ -479,7 +500,7 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
                 <>
                     {/* Backdrop for mobile */}
                     <div 
-                        className="fixed inset-0 bg-slate-900/20 dark:bg-slate-900/60 z-20 xl:hidden backdrop-blur-sm animate-fade-in"
+                        className="absolute inset-0 bg-slate-900/20 dark:bg-slate-900/60 z-20 xl:hidden backdrop-blur-sm animate-fade-in"
                         onClick={closeDictionary}
                     />
 
@@ -534,6 +555,7 @@ export const ReaderInterface: React.FC<ReaderInterfaceProps> = ({ onGoBack }) =>
                     </div>
                 </>
             )}
+            </div>
         </div>
     );
 };

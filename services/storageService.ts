@@ -1,12 +1,13 @@
 
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { QuizData, StoryData, SavedQuiz, SavedStory, VocabularyEntry, CefrLevel, WordDetail, UserProgress, StudyGuideDB, StudyGuideContent, PathCheckpoint } from '../types';
+import { QuizData, StoryData, SavedQuiz, SavedStory, VocabularyEntry, CefrLevel, WordDetail, UserProgress, StudyGuideDB, StudyGuideContent, PathCheckpoint, SavedDocument } from '../types';
 
 const LOCAL_QUIZ_KEY = 'lumiere_local_quizzes';
 const LOCAL_STORY_KEY = 'lumiere_local_stories';
 const LOCAL_VOCAB_PREFIX = 'lumiere_vocab_'; 
 const LOCAL_PROGRESS_KEY = 'lumiere_progress';
 const LOCAL_GUIDES_KEY = 'lumiere_study_guides';
+const LOCAL_DOC_KEY = 'lumiere_local_docs';
 
 const getUserId = () => {
   const KEY = 'lumiere_device_id';
@@ -275,7 +276,72 @@ export const markCheckpointComplete = async (level: string, title: string, score
   saveLocalItems(LOCAL_PROGRESS_KEY, allProgress);
 };
 
-// --- STUDY GUIDES & SYLLABUS ---
+// --- DOCUMENTS ---
+export const saveDocumentToHistory = async (doc: SavedDocument): Promise<SavedDocument> => {
+  if (isSupabaseConfigured()) {
+    try {
+        const { data, error } = await supabase.from('shared_documents').insert([{ 
+            id: doc.id,
+            name: doc.name, 
+            pages: doc.pages,
+            translations: doc.translations || {},
+            created_at: new Date(doc.timestamp).toISOString()
+        }]).select().single();
+        if (!error) return doc;
+    } catch (err) {}
+  }
+  const current = getLocalItems<SavedDocument>(LOCAL_DOC_KEY);
+  const existing = current.findIndex(d => d.id === doc.id);
+  if (existing > -1) {
+      current[existing] = doc;
+  } else {
+      current.unshift(doc);
+  }
+  saveLocalItems(LOCAL_DOC_KEY, current);
+  return doc;
+};
+
+export const saveDocumentTranslations = async (id: string, translations: Record<number, string[]>): Promise<void> => {
+  if (isSupabaseConfigured()) {
+    try {
+        await supabase.from('shared_documents').update({ translations }).eq('id', id);
+    } catch (err) {}
+  }
+  const current = getLocalItems<SavedDocument>(LOCAL_DOC_KEY);
+  const existing = current.findIndex(d => d.id === id);
+  if (existing > -1) {
+      current[existing].translations = translations;
+      saveLocalItems(LOCAL_DOC_KEY, current);
+  }
+};
+
+export const getSavedDocuments = async (): Promise<SavedDocument[]> => {
+  if (isSupabaseConfigured()) {
+    try {
+        const { data, error } = await supabase.from('shared_documents').select('*').order('created_at', { ascending: false });
+        if (!error && data) {
+            return data.map((row: any) => ({ 
+                id: row.id,
+                name: row.name,
+                pages: row.pages,
+                translations: row.translations || {},
+                timestamp: new Date(row.created_at).getTime(),
+                currentPage: 0 // Will be overridden by local progress
+            }));
+        }
+    } catch (err) {}
+  }
+  return getLocalItems<SavedDocument>(LOCAL_DOC_KEY);
+};
+
+export const deleteSavedDocument = async (id: string): Promise<void> => {
+  if (isSupabaseConfigured()) {
+    try { await supabase.from('shared_documents').delete().eq('id', id); } catch (err) {}
+  }
+  const current = getLocalItems<SavedDocument>(LOCAL_DOC_KEY);
+  saveLocalItems(LOCAL_DOC_KEY, current.filter(d => d.id !== id));
+};
+
 
 export const getStudyGuide = async (topic: string, level: string): Promise<StudyGuideContent | null> => {
   if (isSupabaseConfigured()) {

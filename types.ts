@@ -1,4 +1,13 @@
 
+export interface SavedDocument {
+  id: string;
+  name: string;
+  pages: string[][];
+  timestamp: number;
+  currentPage?: number;
+  translations?: Record<number, string[]>;
+}
+
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2';
 export type Difficulty = 'Easy' | 'Medium' | 'Hard';
 export type QuestionType = 'mcq' | 'fill_blank' | 'matching' | 'sentence_translation';
@@ -188,3 +197,34 @@ export interface StudyGuideDB {
   topic_id: string;
   content: StudyGuideContent;
 }
+
+export interface WeakConcept {
+  id: string;
+  concept: string;
+  wrongCount: number;
+  correctCount: number;
+  lastEncountered: number;
+}
+
+// --- TCF SENTENCE PRACTICE TYPES ---
+
+export type SentenceCategory = 'describe_self' | 'ask_question' | 'express_opinion';
+export type SentenceLength = 'short' | 'medium' | 'long';
+export type SentenceDifficulty = 'easy' | 'medium' | 'hard';
+
+export interface SentencePrompt {
+  id: string;
+  english_prompt: string;
+  targeted_concept?: string;
+  category: SentenceCategory;
+}
+
+export interface SentenceEvaluation {
+  is_correct: boolean;
+  score: number; // 0-10
+  feedback: string;
+  mistakes: { mistake: string; correction: string; explanation: string; position_start?: number; position_end?: number }[];
+  better_variations: { variation: string; nuance: string }[];
+  grammatical_concepts: string[];
+}
+

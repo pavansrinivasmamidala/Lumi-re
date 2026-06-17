@@ -17,8 +17,10 @@ import { StoryHistory } from './components/StoryHistory';
 import { BookOpenIcon, AcademicCapIcon, RectangleStackIcon, SunIcon, MoonIcon, ListBulletIcon, MapIcon, MicrophoneIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
 import { ConversationInterface } from './components/ConversationInterface';
 import { ReaderInterface } from './components/ReaderInterface';
+import { SentencePracticeInterface } from './components/SentencePracticeInterface';
+import { PencilSquareIcon } from '@heroicons/react/24/outline';
 
-type Tab = 'quiz' | 'stories' | 'vocabulary' | 'path' | 'talk' | 'reader';
+type Tab = 'quiz' | 'stories' | 'vocabulary' | 'path' | 'talk' | 'reader' | 'practice';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('quiz');
@@ -327,8 +329,8 @@ const App: React.FC = () => {
              <h1 className="font-serif font-bold text-xl tracking-tight text-slate-800 dark:text-white">Lumière</h1>
           </div>
           
-          <div className="flex items-center gap-4">
-            <nav className="flex gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-full transition-colors overflow-x-auto">
+          <div className="flex flex-1 justify-end ml-4 sm:ml-8 items-center gap-2 sm:gap-4 overflow-hidden">
+            <nav className="flex gap-1 sm:gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl md:rounded-full transition-colors overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 <button 
                   onClick={() => setActiveTab('quiz')}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${activeTab === 'quiz' ? 'bg-white dark:bg-slate-700 shadow-sm text-french-blue dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
@@ -371,6 +373,13 @@ const App: React.FC = () => {
                     <DocumentTextIcon className="w-4 h-4" />
                     <span className="hidden sm:inline">Reader</span>
                 </button>
+                <button 
+                  onClick={() => setActiveTab('practice')}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${activeTab === 'practice' ? 'bg-white dark:bg-slate-700 shadow-sm text-french-blue dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                >
+                    <PencilSquareIcon className="w-4 h-4" />
+                    <span className="hidden sm:inline">Practice</span>
+                </button>
             </nav>
 
             {/* Theme Toggle */}
@@ -386,7 +395,7 @@ const App: React.FC = () => {
       </header>
 
       {/* Main Content */}
-      <main className="flex-grow container mx-auto px-4 py-12 flex flex-col items-center justify-center">
+      <main className="flex-grow container mx-auto px-2 sm:px-4 py-4 sm:py-8 flex flex-col items-stretch justify-start overflow-hidden h-full">
         
         {error && (
             <div className="mb-8 w-full max-w-lg bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-4 rounded shadow-sm animate-fade-in">
@@ -425,6 +434,12 @@ const App: React.FC = () => {
         {activeTab === 'reader' && (
             <div className="animate-fade-in-up w-full">
                 <ReaderInterface onGoBack={() => setActiveTab('quiz')} />
+            </div>
+        )}
+
+        {activeTab === 'practice' && (
+            <div className="animate-fade-in-up w-full h-full flex flex-col overflow-hidden">
+                <SentencePracticeInterface onGoBack={() => setActiveTab('quiz')} />
             </div>
         )}
 

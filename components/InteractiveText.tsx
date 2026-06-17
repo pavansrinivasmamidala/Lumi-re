@@ -26,7 +26,7 @@ export const InteractiveText: React.FC<InteractiveTextProps> = ({ text, glossary
   const tokens = text.split(/([ \t\n.,!?;:()'"«»-]+)/);
 
   return (
-    <div className={`inline-block ${className}`}>
+    <span className={className}>
       {tokens.map((token, index) => {
         const cleanToken = token.toLowerCase().trim();
         
@@ -47,7 +47,7 @@ export const InteractiveText: React.FC<InteractiveTextProps> = ({ text, glossary
           />
         );
       })}
-    </div>
+    </span>
   );
 };
 
@@ -125,7 +125,7 @@ const WordToken: React.FC<WordTokenProps> = ({ word, initialEntry, level }) => {
 
   return (
     <span 
-      className="relative inline-block group cursor-pointer z-20"
+      className="relative inline group cursor-pointer z-20"
       onMouseEnter={() => isGlossaryWord && setShowTooltip(true)} // Hover only works for pre-loaded words for UX smoothness
       onMouseLeave={() => setShowTooltip(false)}
       onClick={handleClick}

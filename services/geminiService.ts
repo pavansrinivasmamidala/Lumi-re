@@ -1,6 +1,40 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { QuizSettings, QuizResponse, StoryResponse, VocabularyListResponse, WordDetailResponse, GlossaryEntry, StudyGuideResponse } from "../types";
+import { QuizSettings, QuizResponse, StoryResponse, VocabularyListResponse, WordDetailResponse, GlossaryEntry, StudyGuideResponse, SentenceCategory, SentenceLength, SentenceDifficulty, SentencePrompt, SentenceEvaluation } from "../types";
+
+const ai: any = null;
+
+// --- HELPERS ---
+const generateContentWithRetry = async (ai: any, params: any, retries = 4, delayMs = 2000): Promise<any> => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const isTTS = params.model === "gemini-3.1-flash-tts-preview";
+      const endpoint = isTTS ? '/api/gemini/generateSpeech' : '/api/gemini/generateContent';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+         const err: any = new Error(data.error || "API Error");
+         err.status = data.status || res.status;
+         throw err;
+      }
+      return data;
+    } catch (error: any) {
+      if (error?.status === "RESOURCE_EXHAUSTED" || error?.message?.includes("429")) {
+        if (i === retries - 1) throw error;
+        await new Promise(resolve => setTimeout(resolve, delayMs * Math.pow(2, i))); 
+      } else {
+        throw error;
+      }
+    }
+  }
+};
+
+// --- EXISTING CONFIGS ---
+
 
 const SYSTEM_INSTRUCTION = `
 You are the "French Quiz Engine". Generate a structured JSON response.
@@ -278,16 +312,10 @@ const STUDY_GUIDE_SCHEMA = {
 };
 
 export const checkApiKeyConfigured = (): boolean => {
-  return !!process.env.GEMINI_API_KEY;
+  return true;
 };
 
 export const generateQuiz = async (settings: QuizSettings): Promise<QuizResponse> => {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("API Key is missing. Please add API_KEY to your .env file.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
   const prompt = `
     Generate a French quiz for:
     Topic: ${settings.topic}
@@ -296,8 +324,8 @@ export const generateQuiz = async (settings: QuizSettings): Promise<QuizResponse
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview", 
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-3.1-flash-lite", 
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -318,12 +346,6 @@ export const generateQuiz = async (settings: QuizSettings): Promise<QuizResponse
 };
 
 export const generateStory = async (settings: QuizSettings): Promise<StoryResponse> => {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("API Key is missing. Please add API_KEY to your .env file.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
   let promptText = `CEFR Level: ${settings.level}\nSub-Difficulty: ${settings.difficulty}`;
   if (settings.topic && settings.topic !== 'Surprise Me') {
       promptText += `\nTopic: ${settings.topic}`;
@@ -332,8 +354,8 @@ export const generateStory = async (settings: QuizSettings): Promise<StoryRespon
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview", 
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-3.1-flash-lite", 
       contents: promptText,
       config: {
         systemInstruction: STORY_SYSTEM_INSTRUCTION,
@@ -354,12 +376,9 @@ export const generateStory = async (settings: QuizSettings): Promise<StoryRespon
 };
 
 export const generateVocabularyList = async (level: string): Promise<VocabularyListResponse> => {
-  if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-3.1-pro-preview",
       contents: `Generate a list of 300 common vocabulary words for CEFR Level: ${level}. Ensure all "word" values are in French only.`,
       config: {
         systemInstruction: VOCAB_LIST_INSTRUCTION,
@@ -380,12 +399,9 @@ export const generateVocabularyList = async (level: string): Promise<VocabularyL
 };
 
 export const generateWordDetails = async (word: string): Promise<WordDetailResponse> => {
-  if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-3.1-flash-lite",
       contents: `Analyze this word: ${word}`,
       config: {
         systemInstruction: WORD_DETAIL_INSTRUCTION,
@@ -406,12 +422,9 @@ export const generateWordDetails = async (word: string): Promise<WordDetailRespo
 };
 
 export const generateStudyGuide = async (topic: string, level: string): Promise<StudyGuideResponse> => {
-    if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+      const response = await generateContentWithRetry(ai, {
+        model: "gemini-3.1-flash-lite",
         contents: `Create a study guide for: ${topic} (Level: ${level})`,
         config: {
           systemInstruction: STUDY_GUIDE_INSTRUCTION,
@@ -460,9 +473,6 @@ export const pcmToAudioBuffer = (base64: string, ctx: AudioContext, sampleRate: 
 }
 
 export const explainWordInContext = async (word: string, context: string): Promise<any> => {
-  if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
   const prompt = `You are a French dictionary assistant. 
 Explain the French word "${word}" as it is used in the following context:
 "${context}"
@@ -477,8 +487,8 @@ Output must be JSON conforming to this schema:
 }`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -506,10 +516,7 @@ Output must be JSON conforming to this schema:
 };
 
 export const translateParagraphs = async (paragraphs: string[]): Promise<string[]> => {
-  if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
   if (!paragraphs || paragraphs.length === 0) return [];
-
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   const prompt = `Translate the following French text paragraphs into English.
 Return ONLY a JSON array of strings, where each string is the precise translation of the corresponding paragraph.
@@ -520,8 +527,8 @@ ${JSON.stringify(paragraphs)}
 `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -542,11 +549,8 @@ ${JSON.stringify(paragraphs)}
 };
 
 export const generateSpeech = async (text: string): Promise<string> => {
-  if (!process.env.GEMINI_API_KEY) throw new Error("API Key is missing.");
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithRetry(ai, {
       model: "gemini-3.1-flash-tts-preview",
       contents: [{ parts: [{ text: text }] }],
       config: {
@@ -569,6 +573,128 @@ export const generateSpeech = async (text: string): Promise<string> => {
 
   } catch (error) {
     console.error("Gemini TTS Error:", error);
+    throw error;
+  }
+};
+
+export const generateSentencePrompts = async (category: SentenceCategory, length: SentenceLength, difficulty: SentenceDifficulty, weakConcepts?: string[]): Promise<SentencePrompt[]> => {
+  const seed = Math.floor(Math.random() * 1000000);
+  
+  let conceptsPrompt = '';
+  if (weakConcepts && weakConcepts.length > 0) {
+    conceptsPrompt = `\nThe user has previously struggled with these French grammatical concepts/vocabulary:
+${weakConcepts.map(c => `- ${c}`).join('\n')}
+Sneakily design some of the English prompts so that when translating them to French, the user will be forced to use these concepts. Make it contextually natural.`;
+  }
+
+  const promptStr = `Generate 5 *entirely new and unique* English prompts for a French learner practicing for the TCF speaking exam.
+Random Seed to ensure uniqueness: ${seed}
+Category: ${category}
+Length: ${length} sentences
+Target Difficulty: ${difficulty}${conceptsPrompt}
+
+Ensure these are diverse in topics (e.g., everyday life, work, travel, abstract concepts, depending on difficulty) and do not repeat previous common phrases.
+Output a JSON array of objects with keys:
+- id: a unique string
+- english_prompt: The English sentence(s) the user should try to say in French.
+- targeted_concept: If the prompt targets one of the user's weak concepts, indicate which one. Otherwise leave empty or null.
+- category: "${category}"`;
+
+  try {
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-3.1-flash-lite",
+      contents: promptStr,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              english_prompt: { type: Type.STRING },
+              targeted_concept: { type: Type.STRING, nullable: true },
+              category: { type: Type.STRING }
+            },
+            required: ["id", "english_prompt", "category"]
+          }
+        }
+      }
+    });
+
+    const output = response.text;
+    if (!output) throw new Error("Failed to generate sentence prompts");
+    return JSON.parse(output);
+  } catch (error) {
+    console.error("Gemini Sentence Prompts Error:", error);
+    throw error;
+  }
+};
+
+export const evaluateSentenceTranslation = async (englishPrompt: string, userFrench: string, difficulty: SentenceDifficulty): Promise<SentenceEvaluation> => {
+  const promptStr = `Evaluate a user's French attempt at translating the following prompt to practice for the TCF exam.
+English prompt: "${englishPrompt}"
+User's French translation: "${userFrench}"
+Target Difficulty Level: ${difficulty}
+
+Provide a detailed evaluation in JSON format:
+- is_correct: boolean (overall, does it successfully communicate the meaning?)
+- score: 0-10
+- feedback: Short general feedback.
+- mistakes: Array of { mistake, correction, explanation }. Be precise about accents and position if needed.
+- better_variations: Array of 2-3 better, more natural, or more idiomatic ways to express it with { variation, nuance }. Include variations suitable for a TCF exam to achieve a high score.
+- grammatical_concepts: Array of key grammatical concepts the user should remember based on their attempt or the ideal translations.`;
+
+  try {
+    const response = await generateContentWithRetry(ai, {
+      model: "gemini-3.1-flash-lite",
+      contents: promptStr,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            is_correct: { type: Type.BOOLEAN },
+            score: { type: Type.INTEGER },
+            feedback: { type: Type.STRING },
+            mistakes: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  mistake: { type: Type.STRING },
+                  correction: { type: Type.STRING },
+                  explanation: { type: Type.STRING }
+                },
+                required: ["mistake", "correction", "explanation"]
+              }
+            },
+            better_variations: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  variation: { type: Type.STRING },
+                  nuance: { type: Type.STRING }
+                },
+                required: ["variation", "nuance"]
+              }
+            },
+            grammatical_concepts: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            }
+          },
+          required: ["is_correct", "score", "feedback", "mistakes", "better_variations", "grammatical_concepts"]
+        }
+      }
+    });
+
+    const output = response.text;
+    if (!output) throw new Error("Failed to evaluate translation");
+    return JSON.parse(output);
+  } catch (error) {
+    console.error("Gemini Evaluation Error:", error);
     throw error;
   }
 };
